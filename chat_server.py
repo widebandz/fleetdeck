@@ -371,6 +371,135 @@ def _mark_seen(name, rows):
     save_seen()
 
 
+# ── input: the keys a phone does not have ──────────────────────────────
+# An iOS software keyboard offers letters and no terminal: no Esc, no Tab, no
+# Ctrl, no arrows, nothing to scroll with, and a clipboard the page mostly
+# cannot read. The obvious fix is to synthesise keystrokes into the terminal —
+# but the terminal is ttyd's xterm.js inside an iframe, so that would mean
+# reaching through the proxy into a bundle whose internals move on every ttyd
+# upgrade, to fake events xterm may or may not keep honouring.
+#
+# tmux is the stable interface, and it is already how this server reads the
+# fleet. So the key bar, the composer and the scroller all write THROUGH tmux.
+# The browser never types into the terminal at all; it asks tmux to, and the
+# iframe just renders the result like it renders everything else. Nothing here
+# depends on ttyd beyond it being attached to the same session.
+PASTE_BUF = "fleetdeck"
+MAX_TEXT  = 256 * 1024
+
+# tmux key names only. Anyone reaching this already has a writable shell on the
+# other side of it, so this is not a privilege boundary — it is an argument
+# shape guard, so a stray value cannot arrive at tmux looking like a flag or a
+# target pattern.
+KEY_OK = re.compile(r"^(Escape|Tab|BTab|Enter|Space|BSpace|Up|Down|Left|Right"
+                    r"|Home|End|PPage|NPage|IC|DC|F[1-9]|F1[0-2]"
+                    r"|C-[a-z0-9\\\[\]^_ /-]|M-[a-z0-9./-]|C-M-[a-z])$")
+
+SCROLL_X = {"up": "page-up", "down": "page-down",
+            "top": "history-top", "bottom": "history-bottom"}
+
+
+def live_session(name):
+    """Resolve a caller-supplied name against the sessions that actually exist.
+
+    Exact match, never a raw hand-off to -t: tmux treats an unmatched target as
+    a pattern, so an unvetted string is a way to hit a session other than the
+    one named."""
+    try:
+        names = tmux("list-sessions", "-F", "#{session_name}").splitlines()
+    except Exception:
+        return None
+    return name if name in names else None
+
+
+def in_mode(sess):
+    try:
+        return tmux("display-message", "-p", "-t", sess, "#{pane_in_mode}").strip() == "1"
+    except Exception:
+        return False
+
+
+def send_input(name, text="", keys=(), enter=False):
+    sess = live_session(name)
+    if not sess:
+        raise ValueError("no such session")
+    if len(text) > MAX_TEXT:
+        raise ValueError("text too large")
+    if text:
+        if "\n" in text:
+            # MULTI-LINE ONLY. A bracketed buffer paste is the one way to land a
+            # block in a TUI as a single paste instead of a burst where every
+            # newline submits a line, and it is worth its risk (below) for that.
+            # tmux withholds the wrapper from an app that never asked for
+            # bracketed paste, so `cat` on the far end still gets clean bytes.
+            # stdin rather than argv: no quoting to get wrong, no ARG_MAX.
+            r = subprocess.run([TMUX, "load-buffer", "-b", PASTE_BUF, "-"],
+                               input=text.encode(), capture_output=True, timeout=15)
+            if r.returncode != 0:
+                raise RuntimeError((r.stderr or b"load-buffer failed").decode()[:200])
+            tmux("paste-buffer", "-b", PASTE_BUF, "-t", sess, "-d", "-p")
+        else:
+            # THE COMMON CASE, and deliberately not a bracketed paste. That
+            # wrapper opens with ESC, and anything already holding an unresolved
+            # escape swallows it and prints the remainder as literal text —
+            # `[200~echo hello~`, which zsh then rejects as a bad pattern. The
+            # key bar makes that easy to hit: tap `esc`, then send, and ZLE eats
+            # the paste's ESC. Observed in testing, not theorised. A literal send
+            # carries no ESC at all, so no pending state can eat anything, and a
+            # single line never needed the bracket in the first place.
+            tmux("send-keys", "-t", sess, "-l", "--", text)
+    for k in keys:
+        if not KEY_OK.match(k):
+            raise ValueError(f"key not allowed: {k[:24]}")
+        tmux("send-keys", "-t", sess, "--", k)
+        if k == "Escape":
+            # A bare ESC is not finished when tmux has delivered it: the reader
+            # on the far end is now deciding whether a sequence follows, and a
+            # character arriving too soon becomes Meta-<char> instead of itself.
+            # This settle is for the readers that decide on a TIMER — vim and
+            # friends, ttimeoutlen — and it matters most when one request
+            # carries Escape AND text, where the gap is ours to set.
+            #
+            # It does NOT rescue `esc` at a zsh prompt, and nothing here can.
+            # ESC is ZLE's meta prefix and is not itself bound, so ZLE waits for
+            # the completing key with no timeout at all: tap esc, type `echo`,
+            # and zsh sees Meta-e and runs `cho`. Measured out to 1.2s, every
+            # delay lost the character. That is what a physical keyboard does at
+            # a zsh prompt too — esc is for vim and the TUIs, where it is exact
+            # (verified: esc then :wq writes the file).
+            time.sleep(0.25)
+    if enter:
+        tmux("send-keys", "-t", sess, "--", "Enter")
+
+
+def scroll(name, direction):
+    """Scrollback for a device that cannot scroll the terminal itself.
+
+    Worth being plain about the cost: copy-mode belongs to the PANE, not to the
+    client that asked for it. Scrolling from the phone puts this session's wall
+    tile into copy-mode too, and it stays there until 'bottom' cancels it — the
+    same shape of conflict as `live` mode reshaping a tile to the phone, and for
+    the same reason (tmux renders one window once, for everybody)."""
+    sess = live_session(name)
+    if not sess:
+        raise ValueError("no such session")
+    if direction not in SCROLL_X:
+        raise ValueError("bad direction")
+    if direction == "bottom":
+        # Leave copy-mode entirely rather than sitting at its last line, so the
+        # pane is live again for every client watching it.
+        if in_mode(sess):
+            tmux("send-keys", "-X", "-t", sess, "cancel")
+        return
+    if not in_mode(sess):
+        # -u enters copy-mode already scrolled one page up, so the first tap
+        # moves rather than just arming the mode and appearing to do nothing.
+        tmux("copy-mode", "-u", "-t", sess)
+        if direction == "up":
+            return
+    tmux("send-keys", "-X", "-t", sess, SCROLL_X[direction])
+
+
 # ── page ───────────────────────────────────────────────────────────────
 PAGE = r"""<!doctype html><html><head>
 <meta charset="utf-8"><title>▩ fleet</title>
@@ -392,6 +521,8 @@ body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 ui-monospace,
      font-size:10px;letter-spacing:.1em;flex:none;user-select:none}
 .btn:hover{color:var(--neon);border-color:#2b4353}
 .btn.peek{color:#ffcf4e;border-color:#4a3d12}
+.btn.on{color:var(--neon);border-color:#14484a}
+body.peek #kb{display:none}
 #rows{overflow-y:auto;flex:1}
 .r{padding:10px 13px;border-bottom:1px solid #10171e;cursor:pointer;display:flex;gap:10px;align-items:flex-start}
 .r:hover{background:#111820}
@@ -425,11 +556,48 @@ body.peek #ro{display:block}
 #frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
 .empty{position:absolute;inset:0;display:grid;place-items:center;color:#2b3742;font-size:12px;text-align:center;padding:20px}
 #hue{height:2px;background:#18222c;flex:none}
+
+/* input dock — hidden until a thread is open, and never in peek: peek's whole
+   promise is that looking costs the session nothing, so it must not carry a
+   send button. env(safe-area-inset-bottom) keeps it off the iPhone home bar. */
+#input{display:none;flex:none;border-top:1px solid var(--line);background:var(--panel);
+       flex-direction:column;padding-bottom:env(safe-area-inset-bottom)}
+body.thread.keys:not(.peek) #input{display:flex}
+#keys{display:flex;gap:5px;overflow-x:auto;padding:7px 8px 4px;scrollbar-width:none}
+#keys::-webkit-scrollbar{display:none}
+.k{flex:none;min-width:33px;height:30px;padding:0 8px;border:1px solid #223140;border-radius:7px;
+   background:#0f1720;color:#8fa4b5;font:600 11px/28px ui-monospace,SFMono-Regular,Menlo,monospace;
+   letter-spacing:.05em;text-align:center;cursor:pointer;user-select:none;white-space:nowrap}
+.k:active{background:#16222c;color:var(--txt)}
+.k.on{color:#04211f;background:var(--neon);border-color:var(--neon)}
+.k.sep{min-width:1px;width:1px;padding:0;background:#1b2836;border:0;border-radius:0;
+       margin:4px 3px;pointer-events:none}
+#compose{display:flex;gap:6px;align-items:flex-end;padding:3px 8px 8px}
+#tx{flex:1;min-width:0;height:32px;max-height:104px;resize:none;background:#0f1720;color:var(--txt);
+    border:1px solid #223140;border-radius:8px;padding:7px 9px;overflow-y:auto;
+    font:13px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;outline:none}
+#tx:focus{border-color:#2b4353}
+#tx::placeholder{color:#33414e}
+.sbtn{flex:none;height:32px;padding:0 10px;border:1px solid #223140;border-radius:8px;
+      background:#0f1720;color:#5d7183;cursor:pointer;user-select:none;
+      font:600 11px/30px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.09em}
+.sbtn:active{background:#16222c}
+#ent.on{color:var(--neon);border-color:#14484a;background:#0c2a2a}
+#send{color:var(--neon);border-color:#14484a;background:#0c2a2a}
+#send:active{background:#103434}
+#toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:5;
+       background:#16222c;border:1px solid #2b4353;color:var(--txt);border-radius:8px;
+       padding:6px 11px;font-size:11px;letter-spacing:.04em;opacity:0;pointer-events:none;
+       transition:opacity .18s;white-space:nowrap;max-width:90%;overflow:hidden;text-overflow:ellipsis}
+#toast.show{opacity:1}
 @media(max-width:720px){
   #list{width:100%}
   body.thread #list{display:none} body.thread #pane{display:flex} body:not(.thread) #pane{display:none}
   #back{display:block}
   #title .btn{padding:4px 9px}
+  /* iOS zooms any input whose text is under 16px when it takes focus, and the
+     zoom does not come back out — it just leaves the layout wrong. */
+  #tx{font-size:16px;line-height:1.2}
 }
 </style></head><body>
 <div id="list">
@@ -450,9 +618,21 @@ body.peek #ro{display:block}
     <span id="who">select a session</span>
     <span id="meta"></span>
     <span id="ro">READ-ONLY</span>
+    <span class="btn" id="kb" title="keys, composer and scrollback — the terminal controls a phone keyboard does not have">⌨</span>
     <span class="btn" id="pop" title="open full screen">↗</span>
   </div>
-  <div id="frame"><div class="empty">pick an agent on the left</div></div>
+  <div id="frame"><div class="empty">pick an agent on the left</div><div id="toast"></div></div>
+  <div id="input">
+    <div id="keys"></div>
+    <div id="compose">
+      <span class="sbtn" id="clip" title="paste from this device's clipboard">PASTE</span>
+      <textarea id="tx" rows="1" placeholder="type or paste — long-press to Paste"
+                autocapitalize="off" autocorrect="off" autocomplete="off"
+                spellcheck="false" enterkeyhint="send"></textarea>
+      <span class="sbtn" id="ent" title="append Enter when sending">↵</span>
+      <span class="sbtn" id="send">SEND</span>
+    </div>
+  </div>
 </div>
 <script>
 const $=id=>document.getElementById(id);
@@ -512,7 +692,7 @@ function open_(n){
 // Dropping the iframe closes the websocket; ttyd SIGHUPs `tmux attach`, the
 // client detaches, and a wall tile that had reshaped to this browser snaps back.
 function close_(){
-  cur=null; document.body.classList.remove('thread');
+  cur=null; document.body.classList.remove('thread'); setMod(null);
   $('who').textContent='select a session'; $('meta').textContent='';
   $('hue').style.background='#18222c'; mount(); sig=''; paint();
 }
@@ -550,6 +730,137 @@ $('new').onclick=()=>{
                 changed:Math.floor(Date.now()/1000),active:true,unread:false,clients:0,size:''});
   open_(n);
 };
+// ── input dock ─────────────────────────────────────────────────────────
+// Nothing below synthesises a keystroke into the terminal: every button is a
+// tmux call (see the server-side note). Two destinations, and the split is the
+// point — control keys act on the PROGRAM and go straight out, punctuation is
+// text you are still writing and lands in the composer where you can see it
+// before it goes anywhere. Those are exactly the characters iOS buries two
+// layers into its symbol keyboard.
+//   k = tmux key   s = scrollback   t = type into composer   m = modifier latch
+const KEYS=[
+  ['esc','k','Escape'],['tab','k','Tab'],['⇧⇥','k','BTab'],
+  ['⌃','m','ctrl'],['⌥','m','alt'],
+  ['sep'],
+  ['←','k','Left'],['↑','k','Up'],['↓','k','Down'],['→','k','Right'],
+  ['sep'],
+  ['⇞','s','up'],['⇟','s','down'],['⤒','s','top'],['LIVE','s','bottom'],
+  ['sep'],
+  ['^C','k','C-c'],['^D','k','C-d'],['^Z','k','C-z'],['^L','k','C-l'],['^R','k','C-r'],
+  ['^U','k','C-u'],['^W','k','C-w'],['^A','k','C-a'],['^E','k','C-e'],['^K','k','C-k'],
+  ['sep'],
+  ['⏎','k','Enter'],['⌫','k','BSpace'],
+  ['sep'],
+  ['|','t','|'],['~','t','~'],['/','t','/'],['\\','t','\\'],['-','t','-'],['_','t','_'],
+  ['$','t','$'],['&','t','&'],['*','t','*'],['`','t','`'],['"','t','"'],
+  ['{','t','{'],['}','t','}'],['[','t','['],[']','t',']'],['<','t','<'],['>','t','>'],
+];
+
+let mod=null, toastT=null;
+let kbOn=localStorage.getItem('wbkeys');
+kbOn = kbOn===null ? window.innerWidth<=720 : kbOn==='1';
+let addEnter = localStorage.getItem('wbenter')!=='0';
+
+function toast(m){
+  const el=$('toast'); el.textContent=m; el.classList.add('show');
+  clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('show'),2600);
+}
+
+async function post(url,body){
+  try{
+    const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+                            body:JSON.stringify(body)});
+    if(!r.ok){const j=await r.json().catch(()=>({})); throw new Error(j.error||('HTTP '+r.status));}
+    load();                       // the pane moved; refresh the row behind it
+    return true;
+  }catch(e){toast(String(e.message||e)); return false;}
+}
+
+function grow(){
+  const t=$('tx'); t.style.height='auto';
+  t.style.height=Math.min(104,Math.max(32,t.scrollHeight))+'px';
+}
+
+function insert(s){
+  const t=$('tx'), a=t.selectionStart, b=t.selectionEnd;
+  t.value=t.value.slice(0,a)+s+t.value.slice(b);
+  t.selectionStart=t.selectionEnd=a+s.length;
+  grow(); t.focus();
+}
+
+// A touch keyboard cannot hold a chord, so ⌃ and ⌥ latch instead: arm one, type
+// the next character in the composer, and that pair leaves as C-<char>. It is
+// what makes arbitrary combos reachable without a button for every letter.
+function setMod(m){
+  mod=m;
+  $('keys').querySelectorAll('.k[data-i]').forEach(el=>{
+    const k=KEYS[+el.dataset.i];
+    el.classList.toggle('on',k[1]==='m'&&k[2]===mod);
+  });
+  if(m){$('tx').focus(); toast((m==='ctrl'?'⌃':'⌥')+' — press the next character');}
+}
+
+function hit(k){
+  if(!cur){toast('open a session first');return;}
+  const kind=k[1], v=k[2];
+  if(kind==='m')return setMod(mod===v?null:v);
+  if(kind==='s')return void post('/api/scroll',{session:cur,dir:v});
+  if(kind==='k')return void post('/api/send',{session:cur,keys:[v]});
+  insert(v);
+}
+
+async function send(){
+  if(!cur){toast('open a session first');return;}
+  const t=$('tx').value;
+  if(!t&&!addEnter)return;
+  if(await post('/api/send',{session:cur,text:t,enter:addEnter})){$('tx').value='';grow();}
+  $('tx').focus();                // keep the phone keyboard up between commands
+}
+
+$('keys').innerHTML=KEYS.map((k,i)=>k[0]==='sep'?'<span class="k sep"></span>'
+  :`<span class="k" data-i="${i}">${esc(k[0])}</span>`).join('');
+$('keys').querySelectorAll('.k[data-i]').forEach(el=>{
+  el.onclick=()=>hit(KEYS[+el.dataset.i]);
+});
+
+$('tx').oninput=grow;
+$('tx').addEventListener('keydown',e=>{
+  // Enter is one of the few keys an iOS software keyboard reports honestly
+  // (letters arrive as keyCode 229), so this is safe on both. Shift+Enter still
+  // breaks a line, for pasting a block you want to edit before sending.
+  if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send();}
+});
+$('tx').addEventListener('beforeinput',e=>{
+  if(!mod||!e.data||e.data.length!==1)return;
+  e.preventDefault();
+  const combo=(mod==='ctrl'?'C-':'M-')+e.data.toLowerCase();
+  setMod(null);
+  post('/api/send',{session:cur,keys:[combo]});
+});
+
+$('clip').onclick=async()=>{
+  try{
+    const t=await navigator.clipboard.readText();
+    t ? insert(t) : toast('clipboard is empty');
+  }catch(e){
+    // Safari hands readText() only to a gesture it trusts, and prompts even
+    // then. When it refuses there is nothing to fall back to but the box, which
+    // always works — hence the placeholder saying so.
+    $('tx').focus(); toast('blocked by Safari — long-press the box → Paste');
+  }
+};
+$('send').onclick=send;
+
+function showKb(){document.body.classList.toggle('keys',kbOn);$('kb').classList.toggle('on',kbOn);}
+function showEnt(){
+  $('ent').classList.toggle('on',addEnter);
+  $('ent').title=addEnter?'SEND presses Enter after the text'
+                         :'SEND leaves the text on the prompt unsent';
+}
+$('kb').onclick=()=>{kbOn=!kbOn;localStorage.setItem('wbkeys',kbOn?'1':'0');showKb();};
+$('ent').onclick=()=>{addEnter=!addEnter;localStorage.setItem('wbenter',addEnter?'1':'0');showEnt();};
+showKb(); showEnt();
+
 showMode(); $('sortbtn').title='sort: '+sortBy;
 load(); setInterval(load,3000);
 </script></body></html>"""
@@ -750,12 +1061,36 @@ class H(BaseHTTPRequestHandler):
         except Exception as e:
             self.reply(500, {"error": str(e)})
 
+    def body_json(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        return json.loads(self.rfile.read(n) or b"{}") if n else {}
+
     def do_POST(self):
         if not self.authed():
             return
-        if self.path.split("?")[0].startswith(BASE):
+        path = self.path.split("?")[0]
+        if path.startswith(BASE):
             return self.proxy()
-        self.reply(404, {"error": "not found"})
+        try:
+            if path == "/api/send":
+                b = self.body_json()
+                send_input(b.get("session") or "", b.get("text") or "",
+                           b.get("keys") or [], bool(b.get("enter")))
+            elif path == "/api/scroll":
+                b = self.body_json()
+                scroll(b.get("session") or "", b.get("dir") or "")
+            else:
+                return self.reply(404, {"error": "not found"})
+            # The pane just changed. Expire the snapshot so the row's preview
+            # catches up on the next 3s poll instead of showing pre-send state
+            # for however much of SNAP_TTL was left.
+            with _lock:
+                _snap["at"] = 0.0
+            return self.reply(200, {"ok": True})
+        except ValueError as e:
+            return self.reply(400, {"error": str(e)})
+        except Exception as e:
+            return self.reply(500, {"error": str(e)})
 
 
 def resolve_bind(spec):
