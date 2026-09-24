@@ -65,7 +65,10 @@ import urllib.request
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from fleet_map_reader import fleet_map_cache
+
 HERE = os.path.dirname(os.path.abspath(__file__))
+FLEET_MAP_PAGE = os.path.join(HERE, "fleet_map.html")
 CFG_FILE = os.path.join(HERE, "config.json")
 REGISTRY = os.path.join(HERE, "services.json")
 GLYPHS = os.path.join(HERE, "glyphs.json")
@@ -137,6 +140,11 @@ BRAND = os.environ.get("FLEETDECK_BRAND", CONF["brand"])
 HOST = os.environ.get("FLEETDECK_HOST") or CONF["machine"] or tailnet_name()
 PORT = int(os.environ.get("FLEETDECK_PORT", CONF["ports"]["portal"]))
 BIND = os.environ.get("FLEETDECK_BIND", "127.0.0.1")
+# Slice one runs only as a separate local preview. The installed portal's
+# standard port is Tailscale Served, even though its own socket is loopback.
+FLEET_MAP_ENABLED = (os.environ.get("FLEETDECK_FLEET_MAP") == "1"
+                     and BIND == "127.0.0.1"
+                     and PORT != int(CONF["ports"]["portal"]))
 MACHINE = HOST.split(".")[0]
 SCAN_TTL = 4.0  # seconds; a phone poll every 10s should not fork lsof each time
 
@@ -2213,6 +2221,29 @@ class Handler(BaseHTTPRequestHandler):
                                   "machine": esc_html(MACHINE), "port": PORT}
             return self._send(403, body, "text/html; charset=utf-8")
 
+        # Deliberately opt-in: the portal is visible to permitted tailnet peers,
+        # and this page reveals private session topology even though it is read-only.
+        if path in ("/fleet-map", "/api/fleet-map"):
+            if not FLEET_MAP_ENABLED:
+                return self._send(404, "not here\n", "text/plain")
+            if path == "/api/fleet-map":
+                code, snapshot = fleet_map_cache.get()
+                return self._send(code, json.dumps(snapshot), "application/json")
+            try:
+                with open(FLEET_MAP_PAGE, encoding="utf-8") as fh:
+                    page = fh.read()
+            except OSError:
+                return self._send(503, "fleet map unavailable\n", "text/plain")
+            return self._send(200, page, "text/html; charset=utf-8", {
+                "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; "
+                "style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; "
+                "form-action 'none'; frame-ancestors 'none'"})
+
+        if FLEET_MAP_ENABLED:
+            # This alternate-port listener exposes metadata only. Legacy GETs
+            # include terminal and chat previews, so none are reachable here.
+            return self._send(404, "not here\n", "text/plain")
+
         # Fullscreen on iPhone is not the Fullscreen API — Safari on iOS refuses
         # requestFullscreen for anything but <video>. The only real fullscreen
         # there is Add to Home Screen, which needs a manifest and a PNG icon
@@ -2424,6 +2455,9 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0].rstrip("/") or "/"
         if not allowed(self.client_address[0]):
             return self._send(403, "no\n", "text/plain")
+        if FLEET_MAP_ENABLED:
+            # The isolated map preview is read-only as an entire listener.
+            return self._send(405, "read-only preview\n", "text/plain")
 
         # Speech is a POST because the text can be long, and a proxy rather than
         # a link because :8890 is not on the tailnet — the phone would have

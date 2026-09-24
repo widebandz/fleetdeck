@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Live terminal network · Fleetdeck</title>
+<style>
+  :root{--ink:#17352f;--muted:#5c746a;--line:#d5e5d7;--paper:#f4faf4;--card:#fffefa;--mint:#dff2e5;--focus:#276fbd;--dark:#173c3a;--purple:#8a65a7;--blue:#557fb1;--rose:#b76a81;--amber:#a87635}
+  *{box-sizing:border-box} html{scroll-behavior:smooth} body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  button,input{font:inherit} button{cursor:pointer} button:disabled{cursor:default;opacity:.5}
+  :focus-visible{outline:3px solid var(--focus)!important;outline-offset:3px}
+  [hidden]{display:none!important}
+  .mast{background:var(--dark);color:#f6fff7;padding:17px clamp(16px,3vw,36px);display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .brand{display:flex;align-items:center;gap:11px;color:inherit;text-decoration:none;font-weight:850;letter-spacing:-.03em}
+  .brand-mark{width:34px;height:34px;border-radius:12px;background:#c9f0d6;display:grid;place-items:center;color:#225b4b;font-size:21px;box-shadow:inset 0 -3px 0 #9ed8ae}
+  .brand small{display:block;color:#b8d8cb;font-size:9px;letter-spacing:.16em;line-height:1.1}
+  .mast nav{display:flex;align-items:center;gap:8px}.mast a.nav{color:#e9fff0;text-decoration:none;border:1px solid #47726b;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:800}
+  .mast a.nav.active{background:#d8f0dd;color:#245348;border-color:#d8f0dd}
+  main{max-width:1700px;margin:auto;padding:24px clamp(14px,2vw,30px) 38px}
+  .eyebrow{text-transform:uppercase;letter-spacing:.17em;color:#447661;font-size:10px;font-weight:900}
+  .hero{display:flex;justify-content:space-between;gap:18px;align-items:end;margin-bottom:20px}
+  h1{font-size:clamp(27px,3vw,42px);line-height:1.03;letter-spacing:-.06em;margin:6px 0 8px}
+  .hero p{margin:0;max-width:660px;color:var(--muted)}
+  .status-pill{border-radius:100px;border:1px solid var(--line);background:#fff;padding:8px 12px;font-size:11px;font-weight:800;white-space:nowrap}
+  .status-pill[data-state="fresh"]{background:#e0f4e6;color:#266a43}.status-pill[data-state="partial"],.status-pill[data-state="stale"]{background:#fff0d8;color:#775123}.status-pill[data-state="demo"]{background:#efe8fa;color:#654481}.status-pill[data-state="source_unavailable"]{background:#fae8e8;color:#914e52}
+  .notice{border:1px solid #ead9aa;background:#fff7df;border-radius:13px;padding:10px 13px;color:#6e5824;font-size:12px;margin-bottom:14px}
+  .toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 15px}
+  .toolbar label{position:relative;display:block;flex:1 1 240px;max-width:360px}
+  .toolbar label span{position:absolute;left:12px;top:10px;color:#748b80}
+  .toolbar input{width:100%;padding:10px 12px 10px 34px;background:#fff;border:1px solid #ccdccc;border-radius:11px;color:var(--ink)}
+  .btn{border:1px solid #c9ddce;border-radius:11px;background:#fffefa;color:#245d4b;padding:9px 13px;font-size:12px;font-weight:800;box-shadow:0 2px 0 #dbe8dc}
+  .btn:hover{background:#edf8ef}.btn.primary{background:#214f47;border-color:#214f47;color:#fff}.btn.primary:hover{background:#2b695b}.btn.on{background:#e5f5e9;border-color:#83b99a}
+  .stamp{font-size:11px;color:var(--muted);margin-left:auto}
+  .layout{display:grid;grid-template-columns:minmax(190px,240px) minmax(0,1fr) minmax(230px,290px);gap:13px;align-items:start}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:0 5px 20px #1d5b3d0a}
+  .panel-head{padding:14px 16px;border-bottom:1px solid var(--line)} .panel-head h2{margin:2px 0 0;font-size:17px;letter-spacing:-.04em}.panel-head p{font-size:11px;color:var(--muted);margin:3px 0 0}
+  .roster{position:sticky;top:12px;max-height:calc(100vh - 25px);overflow:auto}
+  .roster-list{padding:7px;display:grid;gap:3px}.roster-item{display:grid;grid-template-columns:18px 1fr;gap:6px;text-align:left;width:100%;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--ink);padding:8px 9px}
+  .roster-item:hover{background:#eef8ef}.roster-item.active{background:#e0f3e5;border-color:#a4ccb0}.roster-item .symbol{font-size:14px;line-height:1.4;color:#347654}
+  .roster-item .name{display:block;font-weight:800;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.roster-item small{display:block;color:var(--muted);font-size:10px}
+  .roster-empty{color:var(--muted);font-size:12px;padding:12px}
+  .stage{min-width:0;overflow:hidden}.stage-head{padding:15px 17px 10px;display:flex;align-items:start;justify-content:space-between;gap:10px}
+  .stage-head h2{margin:1px 0 4px;font-size:20px;letter-spacing:-.05em}.stage-head p{margin:0;color:var(--muted);font-size:11px}
+  .legend{display:flex;flex-wrap:wrap;gap:6px;padding:0 17px 12px}.legend span{border:1px solid #d8e7db;border-radius:100px;padding:4px 8px;font-size:10px;font-weight:800;background:#fff;color:#526e5c}
+  .legend b{font-size:12px}.legend .purple{color:var(--purple)}.legend .blue{color:var(--blue)}.legend .rose{color:var(--rose)}
+  .diagram-scroll{overflow:auto;margin:0 10px 10px;border:1px solid #d5e5da;border-radius:13px;background-color:#f8fcf7;background-image:radial-gradient(#d5e9da 1px,transparent 1px);background-size:18px 18px}
+  .diagram{position:relative;min-width:960px;min-height:670px}.diagram svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+  .wire{pointer-events:all;cursor:pointer}.wire .line{fill:none;stroke:#8fae99;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}.wire.semantic .line{stroke:var(--wire,#946bb2);stroke-width:3}.wire.declared .line{stroke-dasharray:7 5}.wire .hit{fill:none;stroke:transparent;stroke-width:18;pointer-events:stroke}.wire:hover .line,.wire.active .line{stroke-width:5}.wire.dim{opacity:.18}
+  .node-layer,.edge-tags{position:absolute;inset:0;pointer-events:none}.map-node,.edge-tag{position:absolute;pointer-events:auto}
+  .map-node{display:flex;align-items:center;gap:10px;text-align:left;width:190px;min-height:66px;padding:10px 11px;background:#fffefa;border:1px solid #bcd8c3;border-radius:15px;color:var(--ink);box-shadow:0 4px 0 #cfe5d3,0 7px 18px #265c3810}
+  .map-node:hover{transform:translateY(-1px);border-color:#75af87}.map-node.active{outline:3px solid var(--focus);outline-offset:2px}.map-node.dim{opacity:.28}
+  .map-node.host{background:#eaf8ed;border-color:#95cda3}.map-node.session{background:#fffef8;border-color:#8db6a0;width:218px}.map-node.pane{background:#eef4fd;border-color:#adc5e6}.map-node.resource{background:#f8f2fc;border-color:#d6c0e2}
+  .map-node .icon{width:36px;height:36px;flex:none;border-radius:11px;display:grid;place-items:center;background:#dff1e5;color:#397354;font-size:21px}
+  .map-node.pane .icon{background:#dce8fb;color:#5578a9}.map-node.resource .icon{background:#eee2f7;color:#8667a2}
+  .map-node small{display:block;font-size:9px;letter-spacing:.09em;text-transform:uppercase;font-weight:900;color:#607e68}.map-node strong{display:block;font-size:13px;line-height:1.2;overflow-wrap:anywhere}.map-node em{display:block;color:#647a6c;font-size:10px;font-style:normal}
+  .edge-tag{max-width:160px;transform:translate(-50%,-50%);border:1px solid #cfb4dd;border-radius:100px;padding:5px 8px;background:#fff;color:#745486;font-size:9px;font-weight:900;letter-spacing:.02em;box-shadow:0 2px 7px #47325718}
+  .edge-tag:hover,.edge-tag.active{outline:3px solid var(--focus);outline-offset:1px}.edge-tag.dim{opacity:.25}
+  .map-empty{padding:55px 22px;text-align:center;min-height:330px;display:grid;align-content:center;justify-items:center}.map-empty .face{font-size:39px;color:#8eac94}.map-empty h2{margin:8px 0 0;font-size:20px}.map-empty p{max-width:380px;color:var(--muted);margin:7px 0 14px}
+  .inspector{position:sticky;top:12px;min-height:265px;background:#edf8ed}.inspector-body{padding:16px}.inspect-icon{height:44px;width:44px;border-radius:14px;background:#d2ead6;display:grid;place-items:center;font-size:23px;color:#37704d;margin-bottom:10px}
+  .inspect-kicker{font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#537c5d}.inspect-title{font-size:21px;line-height:1.1;letter-spacing:-.05em;margin:4px 0 7px;overflow-wrap:anywhere}.inspect-desc{color:#4a6552;font-size:12px;margin:0 0 10px}
+  .facts{display:grid;gap:0;margin:11px 0 0}.facts div{border-top:1px solid #cee5d2;padding:8px 0;display:grid;gap:2px}.facts dt{font-size:9px;text-transform:uppercase;letter-spacing:.1em;font-weight:900;color:#5b7b61}.facts dd{margin:0;font-size:11px;overflow-wrap:anywhere}
+  .fact-unknown{color:#8a6331}.fact-stale{color:#8b5b35}.inspect-note{font-size:10px;color:#68806b;line-height:1.5;margin-top:13px}
+  .mobile-map{display:none}.mobile-tree,.mobile-tree ol{list-style:none;margin:0;padding:0}.mobile-tree ol{margin:5px 0 6px 13px;padding-left:13px;border-left:2px solid #d2e4d5}.mobile-tree li{margin:4px 0}.mobile-tree button,.connection-list button{display:block;width:100%;text-align:left;background:#fff;border:1px solid #d7e7da;border-radius:10px;color:var(--ink);padding:8px 10px}.mobile-tree button.active,.connection-list button.active{outline:3px solid var(--focus)}.mobile-tree button small,.connection-list button small{display:block;color:var(--muted);font-size:10px}.connection-list{display:grid;gap:6px}.connection-list button b{display:block;font-size:11px}.connection-list button b span{color:var(--purple)}
+  .mobile-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.mobile-head h3{margin:0;font-size:14px}.mobile-map h4{margin:16px 0 7px;border-top:1px solid var(--line);padding-top:13px}
+  .foot{font-size:11px;color:var(--muted);margin:18px 2px}.foot strong{color:var(--ink)}
+  @media(max-width:1150px){.layout{grid-template-columns:190px minmax(0,1fr)}.inspector{grid-column:2;position:static;min-height:0}.roster{grid-row:1 / span 2}}
+  @media(max-width:740px){main{padding:20px 13px 28px}.hero{display:block}.status-pill{display:inline-block;margin-top:10px}.stamp{width:100%;margin-left:0}.layout{display:flex;flex-direction:column}.roster,.stage,.inspector{width:100%;position:static;max-height:none}.roster-list{max-height:145px;overflow:auto;grid-template-columns:repeat(2,minmax(0,1fr))}.stage{order:1}.inspector{order:2}.roster{order:0}.diagram-scroll{display:none}.mobile-map{display:block;padding:13px 16px 16px}.stage-head{padding-bottom:9px}.legend{padding-bottom:8px}.mobile-map .btn{font-size:10px;padding:6px 8px}.stage.diagram-open .diagram-scroll{display:block}.mobile-map h4{font-size:13px}}
+  @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.map-node:hover{transform:none}}
+  /* Fleetdeck's terminal-network visual system: compact blocks on a navy grid. */
+  :root{color-scheme:dark;--ink:#ebf8ff;--muted:#a5bdcc;--line:#2e4a62;--paper:#070f19;--card:#0d1a28;--focus:#fff2ad;--dark:#0a1723;--purple:#bda4ff;--blue:#82aefe;--rose:#fc80dc;--amber:#f7c872}
+  body{background:var(--paper);color:var(--ink)}
+  .mast{min-height:72px;background:#0a1723;border-bottom:1px solid var(--line);padding:12px 21px}
+  .brand-mark{background:#123244;border:1px solid #4f9db5;color:#4cdbf0;box-shadow:none}
+  .brand small{color:#a5bdcc}.mast a.nav{color:#d0e7f0;background:#112638;border-color:#426177}.mast a.nav.active{background:#1b4053;color:#a6edfc;border-color:#4cdbf0}
+  main{max-width:none;padding:0}
+  .eyebrow{color:#a2c5d8}
+  .hero{margin:0;padding:11px 20px;background:#0d1a28;border-bottom:1px solid var(--line);align-items:center}
+  .hero h1{font-size:23px;margin:1px 0 2px;letter-spacing:-.045em}.hero p{font-size:11px;max-width:850px;color:#b2c9d5}
+  .status-pill{background:#122b3b;border-color:#42657a;color:#d6ebf4}
+  .status-pill[data-state="fresh"]{background:#173848;border-color:#3c9db4;color:#a5edfa}
+  .status-pill[data-state="partial"],.status-pill[data-state="stale"]{background:#3c2c20;border-color:#a57944;color:#ffdc9f}
+  .status-pill[data-state="demo"]{background:#322342;border-color:#aa78d4;color:#e3caff}
+  .status-pill[data-state="source_unavailable"]{background:#3a2432;border-color:#ad6987;color:#f7c1d4}
+  .notice{margin:0;padding:7px 20px;border:0;border-bottom:1px solid #866745;border-radius:0;background:#33281e;color:#f3cf91}
+  .toolbar{margin:0;padding:8px 20px;background:#0b1928;border-bottom:1px solid var(--line)}
+  .toolbar label input{background:#0a1622;border-color:#426079;color:var(--ink)}.toolbar label input::placeholder{color:#91a9b8}.toolbar label span{color:#4cdbf0}
+  .btn{background:#142a3b;border-color:#405d73;border-radius:8px;box-shadow:none;color:#dcf2fb}
+  .btn:hover{background:#1c4256}.btn.primary{background:#4cdbf0;border-color:#59bdd0;color:#08202b}.btn.primary:hover{background:#98eff8}.btn.on{background:#244454;border-color:#4cdbf0}
+  .stamp{color:#adc7d3}
+  .layout{height:calc(100vh - 183px);min-height:550px;grid-template-columns:242px minmax(0,1fr) 325px;gap:0}
+  .panel{background:#0d1a28;border-radius:0;box-shadow:none;border:0}
+  .roster{position:static;max-height:none;height:100%;border-right:1px solid var(--line);overflow:auto}
+  .panel-head{border-bottom:1px solid var(--line);padding:15px 16px}.panel-head h2{font-size:14px}.panel-head p{color:var(--muted)}
+  .roster-list{padding:9px}.roster-item{border-radius:8px;color:var(--ink)}.roster-item:hover{background:#173247}.roster-item.active{background:#173247;border-color:#4888a5}
+  .roster-item .symbol{color:#4cdbf0}.roster-item small{color:var(--muted)}
+  .stage{display:flex;flex-direction:column;background:#08131f}
+  .stage-head{background:#0c1b2a;border-bottom:1px solid var(--line);padding:12px 17px}.stage-head h2{font-size:16px}.stage-head p{color:var(--muted)}
+  .stage-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  .zoom-controls{display:flex;align-items:center;gap:3px;border:1px solid #405d73;border-radius:8px;padding:2px;background:#102334}.zoom-controls .btn{border:0;min-width:30px;padding:5px 7px}.zoom-controls output{min-width:36px;text-align:center;color:#bfd8e4;font-size:10px;font-weight:800}
+  .legend{background:#0c1b2a;border-bottom:1px solid var(--line);padding:0 17px 9px}.legend span{background:#142a3b;border-color:#3f5c71;color:#c8e2ee}
+  .legend .purple{color:#bda4ff}.legend .blue{color:#82aefe}.legend .rose{color:#fc80dc}
+  .diagram-scroll{flex:1;min-height:0;margin:0;border:0;border-radius:0;background-color:#091724;background-image:linear-gradient(rgba(87,131,158,.14) 1px,transparent 1px),linear-gradient(90deg,rgba(87,131,158,.14) 1px,transparent 1px);background-size:28px 28px;scrollbar-color:#47657d #0b1a29}
+  .diagram{min-height:680px}
+  .wire .line{stroke:#668198;stroke-width:2;opacity:.72}.wire.semantic .line{stroke:#b5e87b;stroke-width:3;opacity:.9}.wire.semantic[data-type="chat_routes_to"] .line{stroke:#fc80dc}.wire.semantic[data-type="describes_session"] .line{stroke:#ab8bbb;stroke-dasharray:2 7}.wire.semantic[data-type="uses_tool"] .line,.wire.semantic[data-type="executes_file"] .line{stroke:#bda4ff}.wire.semantic[data-type="router_addressable"] .line,.wire.semantic[data-type="router_agent_pane_ready"] .line{stroke:#82aefe;stroke-dasharray:2 6;opacity:.6}.wire .hit{stroke-width:20}.wire.active .line{stroke-width:5;opacity:1;filter:drop-shadow(0 0 7px currentColor)}
+  .map-node{min-height:66px;border-color:#4b7086;border-radius:11px;background:#14283a;color:var(--ink);box-shadow:0 8px 24px #0003}
+  .map-node:hover{transform:none;background:#1b3b50;border-color:#4cdbf0}
+  .map-node.active{outline-color:var(--focus)}.map-node.host{background:#183348;border-color:#5aa7b9}.map-node.session{background:#122638;border-color:#4b7086}.map-node.session.assigned{border-left:4px solid #b5e87b}.map-node.session.unassigned{border-left:4px solid #f7c872}.map-node.session.uncertain{border-left:4px solid #8ca0ad}
+  .map-node.stale,.map-node.partial-source{border-style:dashed;border-color:#f7c872}.map-node.stale em,.map-node.partial-source em{color:#ffd89b}.wire.stale .line{stroke:#f7c872!important;stroke-dasharray:4 6!important}.edge-tag.stale{border-style:dashed;border-color:#f7c872;color:#ffd89b}.stage.snapshot-stale .map-node{border-style:dashed}.stage.snapshot-stale .wire .line{stroke-dasharray:4 6}.stage.snapshot-stale .edge-tag{border-style:dashed}
+  .map-node.pane{background:#14283a;border-color:#4b7086}.map-node.resource{background:#14263b;border-color:#60728e}.map-node.resource.chat{background:#33203d;border-color:#b462a8}
+  .map-node .icon{background:#123244;color:#4cdbf0}.map-node.pane .icon{background:#263a35;color:#b5e87b}.map-node.resource .icon{background:#2a2843;color:#bda4ff}.map-node.resource.chat .icon{color:#fc80dc}
+  .map-node small{color:#a1cbdc}.map-node em{color:#a5bdcc}
+  .edge-tag{background:#102b3e;border-color:#567a8d;border-radius:7px;color:#effbff;box-shadow:0 4px 14px #0005}.edge-tag.computed{border-style:dotted;color:#b6d1ff;opacity:.82}
+  .map-empty{background:#091724}.map-empty .face{color:#4cdbf0}.map-empty p{color:var(--muted)}
+  .inspector{height:100%;min-height:0;position:static;overflow:auto;background:#0d1a28;border-left:1px solid var(--line)}
+  .inspector-body{padding:20px}.inspect-icon{background:#17364b;color:#4cdbf0}.inspect-kicker{color:#4cdbf0}.inspect-title{font-size:23px}.inspect-desc{color:#b4cbd7}
+  .facts div{border-top-color:#304c63}.facts dt{color:#a4c3d3}.facts dd{color:#eef9ff}.fact-unknown{color:#f7c872!important}.fact-stale{color:#f4c7a0!important}.inspect-note{color:#a5bdcc}
+  .mobile-map{background:#0a1927}.mobile-tree button,.connection-list button{background:#13283a;border-color:#38576c;color:#ebf8ff}.mobile-tree button:hover,.connection-list button:hover{background:#1a3c50;border-color:#4cdbf0}.mobile-tree button small,.connection-list button small{color:#a5bdcc}.mobile-tree ol{border-left-color:#46677a}.connection-list button b span{color:#bda4ff}
+  .all-tree{flex:1;overflow:auto;padding:18px 24px;background-color:#091724;background-image:linear-gradient(rgba(87,131,158,.1) 1px,transparent 1px),linear-gradient(90deg,rgba(87,131,158,.1) 1px,transparent 1px);background-size:28px 28px}
+  .all-tree-intro{display:flex;gap:10px;align-items:baseline;margin-bottom:16px}.all-tree-intro strong{font-size:17px}.all-tree-intro span{color:var(--muted);font-size:11px}.all-tree>.mobile-tree{max-width:650px}.all-tree .mobile-tree ol{margin-left:20px}
+  .stage.all-mode .zoom-controls{display:none}
+  .foot{display:none}
+  @media(max-width:1150px){.layout{grid-template-columns:200px minmax(0,1fr) 280px}.roster{grid-row:auto}.inspector{grid-column:auto}}
+  @media(max-width:780px){.mast{align-items:flex-start}.hero{padding:12px 15px}.hero h1{font-size:21px}.hero p{font-size:11px}.toolbar{padding:8px 14px}.layout{display:flex;flex-direction:column;height:auto;min-height:calc(100vh - 182px)}.roster{width:100%;height:auto;max-height:220px;border-right:0;border-bottom:1px solid var(--line)}.stage{width:100%;min-height:490px}.inspector{width:100%;height:auto;min-height:260px;border-left:0;border-top:1px solid var(--line)}.diagram-scroll{display:none}.stage.diagram-open .diagram-scroll{display:block;height:470px;flex:none}.mobile-map{display:block}.all-tree{max-height:500px}.roster-list{grid-template-columns:repeat(2,minmax(0,1fr))}.stage-actions{width:auto}.stamp{width:100%}}
+</style>
+</head>
+<body>
+<header class="mast"><a class="brand" href="/fleet-map"><span class="brand-mark" aria-hidden="true">⌂</span><span>Wideband <small>TERMINAL NETWORK</small></span></a><nav aria-label="Pages"><a class="nav active" href="/fleet-map" aria-current="page">Terminal map</a></nav></header>
+<main>
+  <div class="hero"><div><span class="eyebrow">Local preview · read only</span><h1>Live terminal network.</h1><p>Follow a host to its session, window, and pane. Select a named pipe to see why two things are connected and when that claim was checked.</p></div><span class="status-pill" id="status" data-state="source_unavailable" aria-live="polite">◌ Connecting</span></div>
+  <div class="notice" id="notice" role="status" hidden></div>
+  <div class="toolbar"><label><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Find a session" aria-label="Find a session"></label><button class="btn" id="refresh" type="button">↻ Refresh</button><button class="btn" id="demo" type="button">✦ Try synthetic tour</button><span class="stamp" id="stamp">Waiting for a snapshot</span></div>
+  <div class="layout">
+    <aside class="panel roster" aria-label="Terminal branches"><div class="panel-head"><span class="eyebrow">Branch index</span><h2>Sessions <span id="session-count"></span></h2><p>Pick a branch to zoom into its terminals.</p></div><div class="roster-list" id="roster"></div></aside>
+    <section class="panel stage" id="stage" aria-labelledby="stage-title"><div class="stage-head"><div><span class="eyebrow">Org chart · click any node or pipe</span><h2 id="stage-title">Terminal map</h2><p id="stage-subtitle">A branch and its named connections appear here.</p></div><div class="stage-actions"><button class="btn" id="all-terminals" type="button" aria-pressed="false">All terminals</button><button class="btn" id="all-lines" type="button" aria-pressed="false">Show computed routes</button><div class="zoom-controls" role="group" aria-label="Diagram zoom"><button class="btn" id="zoom-out" type="button" aria-label="Zoom out">−</button><output id="zoom-level" aria-live="polite">100%</output><button class="btn" id="zoom-in" type="button" aria-label="Zoom in">+</button><button class="btn" id="zoom-fit" type="button" aria-label="Fit diagram to width">Fit</button></div></div></div>
+      <div class="legend" aria-label="Diagram key"><span><b>│</b> Contains</span><span><b class="purple">→</b> Declared relation</span><span><b class="blue">⋯</b> On-disk routing + tmux · delivery unverified</span><span><b class="rose">◇</b> Dashed amber · last known</span></div>
+      <div class="diagram-scroll" id="diagram-scroll" tabindex="0" aria-label="Scrollable terminal diagram"><div class="diagram" id="diagram"><svg id="wires" aria-label="Terminal hierarchy and typed connections"></svg><div class="node-layer" id="node-layer"></div><div class="edge-tags" id="edge-tags"></div></div></div>
+      <div class="all-tree" id="all-tree" hidden></div>
+      <div class="mobile-map" id="mobile-map"><div class="mobile-head"><h3>Terminals, top to bottom</h3><button class="btn" type="button" id="diagram-toggle" aria-expanded="false" aria-controls="diagram-scroll">View diagram ↗</button></div><ol class="mobile-tree" id="mobile-tree"></ol><h4>Named connections</h4><div class="connection-list" id="connection-list"></div></div>
+      <div class="map-empty" id="empty" hidden><span class="face" aria-hidden="true">◌</span><h2>No snapshot yet</h2><p>The local snapshot source is unavailable. Check the collector or try the synthetic tour.</p><button class="btn primary" type="button" id="empty-demo">Try synthetic tour</button></div>
+    </section>
+    <aside class="panel inspector" id="inspector" aria-labelledby="inspect-title"><div class="inspector-body"><span class="inspect-icon" id="inspect-icon" aria-hidden="true">⌂</span><span class="inspect-kicker" id="inspect-type">Select a node or pipe</span><h2 class="inspect-title" id="inspect-title" tabindex="-1">Inspect the network</h2><p class="inspect-desc" id="inspect-desc">The chart keeps declared identity separate from the process seen in a pane.</p><dl class="facts" id="facts"></dl><p class="inspect-note">Pane text and messages are never read for this map. A process name does not prove an agent identity.</p></div></aside>
+  </div>
+  <p class="foot"><strong>How to read it:</strong> solid stems contain windows and panes; arrows show directed named relationships. Dotted blue pipes are computed eligibility at collection time, not delivered messages. Select a pipe to inspect its source and age.</p>
+</main>
+<script>
+(function(){
+  "use strict";
+  var byId=function(id){return document.getElementById(id)};
+  var esc=function(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})};
+  var fixture={schema_version:"agent-fleet.snapshot.v1",collected_at:"2026-09-24T00:00:00Z",status:"demo",summary:{live_sessions:3},unknowns:[],nodes:[
+    {id:"host:sample",type:"host",label:"Sample device",parent_id:null,declared:true,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z"},
+    {id:"session:moss",type:"session",label:"Moss",parent_id:"host:sample",declared:true,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z",identity:{role:"assigned",card_present:true},runtime:{window_count:1}},
+    {id:"window:moss:1",type:"window",label:"Window 1",parent_id:"session:moss",declared:false,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z"},
+    {id:"pane:moss:%1",type:"pane",label:"Pane A",parent_id:"window:moss:1",declared:false,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z",process:{classification:"recognized_engine",display:"Claude Code",basis:"sample process"}},
+    {id:"session:pip",type:"session",label:"Pip",parent_id:"host:sample",declared:true,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z",identity:{role:"assigned",card_present:true},runtime:{window_count:1}},
+    {id:"window:pip:1",type:"window",label:"Window 1",parent_id:"session:pip",declared:false,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z"},
+    {id:"pane:pip:%2",type:"pane",label:"Pane A",parent_id:"window:pip:1",declared:false,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z",process:{classification:"recognized_engine",display:"Codex",basis:"sample process"}},
+    {id:"session:wisp",type:"session",label:"Wisp",parent_id:"host:sample",declared:null,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z",identity:{role:"unknown",card_present:false},runtime:{window_count:1}},
+    {id:"window:wisp:1",type:"window",label:"Window 1",parent_id:"session:wisp",declared:false,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z"},
+    {id:"pane:wisp:%3",type:"pane",label:"Pane A",parent_id:"window:wisp:1",declared:false,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z",process:{classification:"shell",display:"Shell",basis:"sample process"}},
+    {id:"workspace:scratch",type:"workspace",label:"Scratch desk",parent_id:null,declared:true,observed:null,source_refs:["synthetic"],observed_at:null},
+    {id:"tool:review",type:"tool",label:"Source review",parent_id:null,declared:true,observed:null,source_refs:["synthetic"],observed_at:null},
+    {id:"channel:inbox",type:"channel",label:"Draft inbox",parent_id:null,declared:true,observed:null,source_refs:["synthetic"],observed_at:null}
+  ],edges:[
+    {id:"handoff:moss:pip",from:"session:moss",to:"session:pip",type:"handoff",evidence:"declared",source:"synthetic",freshness:{as_of:"2026-09-24T00:00:00Z",status:"sample"},display:"Moss → Pip"},
+    {id:"uses:moss:desk",from:"session:moss",to:"workspace:scratch",type:"uses_workspace",evidence:"declared",source:"synthetic",freshness:{as_of:"2026-09-24T00:00:00Z",status:"sample"},display:"Scratch desk"},
+    {id:"uses:moss:review",from:"session:moss",to:"tool:review",type:"uses_tool",evidence:"declared",source:"synthetic",freshness:{as_of:"2026-09-24T00:00:00Z",status:"sample"},display:"Source review"},
+    {id:"inbox:pip",from:"channel:inbox",to:"session:pip",type:"chat_routes_to",evidence:"declared",source:"synthetic",freshness:{as_of:"2026-09-24T00:00:00Z",status:"sample"},display:"Inbox → Pip"}
+  ]};
+  var data=null,demo=false,selectedSession=null,selectedKind="node",selectedId=null,requestSerial=0,allMode=false,showComputed=false,zoom=1;
+  var nodeIndex=function(){var m={};if(data)data.nodes.forEach(function(n){m[n.id]=n});return m};
+  var childrenOf=function(id){return data?data.nodes.filter(function(n){return n.parent_id===id}):[]};
+  var sessions=function(){return data?data.nodes.filter(function(n){return n.type==="session"}).sort(function(a,b){return a.label.localeCompare(b.label)}):[]};
+  var nodeLabel=function(id){var n=nodeIndex()[id];return n?n.label:id};
+  var age=function(value){if(!value)return "unknown";var d=Date.parse(value);if(!Number.isFinite(d))return value;var s=Math.max(0,Math.floor((Date.now()-d)/1000));return s<60?"just now":s<3600?Math.floor(s/60)+" min ago":s<86400?Math.floor(s/3600)+" h ago":Math.floor(s/86400)+" d ago"};
+  var when=function(value){if(!value)return "Unknown";var d=new Date(value);return Number.isNaN(d.getTime())?value:d.toLocaleString()};
+  var tri=function(v){return v===true?"✓ Yes":v===false?"○ No":"? Unknown"};
+  var edgeName=function(e){return ({hands_off_to:"Handoff",handoff:"Handoff",chat_routes_to:"Chat route",describes_session:"Description",router_addressable:"Addressable in snapshot",router_agent_pane_ready:"Pane ready in snapshot",executes_file:"Executes file",uses_tool:"Uses tool"})[e.type]||e.type.replace(/_/g," ")};
+  var edgeOrder=function(e){return ({hands_off_to:0,handoff:0,chat_routes_to:1,uses_tool:2,executes_file:3,describes_session:4,router_addressable:8,router_agent_pane_ready:9})[e.type]??5};
+  function setStatus(){
+    var s=data?data.status:"source_unavailable",labels={fresh:"● Live snapshot",partial:"◇ Partial snapshot",stale:"◷ Stale snapshot",demo:"✦ Synthetic tour",source_unavailable:"◇ Source unavailable"};
+    byId("status").dataset.state=s;byId("status").textContent=labels[s]||labels.source_unavailable;
+    byId("stamp").textContent=data&&data.collected_at?(s==="demo"?"Illustrative fixture only":("Collected "+when(data.collected_at)+" · "+age(data.collected_at))):"No collection time";
+    var unknowns=data&&data.unknowns?data.unknowns.filter(function(x){return x.kind==="source_unavailable"}):[];
+    var unavailable=[].concat(unknowns.map(function(x){return x.source}),((data&&data.sources)||[]).filter(function(x){return x.status==="unavailable"||x.status==="partial"}).map(function(x){return x.id})).filter(Boolean);
+    var notice=byId("notice");
+    if(s==="stale"){notice.hidden=false;notice.textContent="Refresh failed. This chart keeps the last collected facts, dated above."}
+    else if(s==="partial"||unknowns.length){notice.hidden=false;notice.textContent="Some sources could not be checked: "+(Array.from(new Set(unavailable)).join(", ")||"source status unknown")+". Missing facts remain unknown; dated last-known facts are marked in the chart and inspector."}
+    else if(s==="demo"){notice.hidden=false;notice.textContent="Synthetic tour. These characters and connections are illustrative; no live source is connected."}
+    else if(s==="source_unavailable"){notice.hidden=false;notice.textContent="The local snapshot source is unavailable. The diagram is empty until a valid collection arrives."}
+    else notice.hidden=true;
+    byId("demo").classList.toggle("on",demo);
+    byId("stage").classList.toggle("snapshot-stale",s==="stale");
+  }
+  function chooseInitial(){
+    var list=sessions(),ids=new Set(list.map(function(n){return n.id}));
+    if(!ids.has(selectedSession)){
+      var handoff=data.edges.find(function(e){return (e.type==="hands_off_to"||e.type==="handoff")&&ids.has(e.from)});
+      var ranked=list.slice().sort(function(a,b){
+        var count=function(n){return data.edges.filter(function(e){return e.evidence!=="computed"&&(e.from===n.id||e.to===n.id)}).length};
+        return count(b)-count(a)||a.label.localeCompare(b.label)
+      });
+      selectedSession=(handoff?{id:handoff.from}:ranked[0]||{}).id||null;
+    }
+    var allIds=new Set(data.nodes.map(function(n){return n.id})),allEdges=new Set(data.edges.map(function(e){return e.id}));
+    if(selectedKind==="node"&&!allIds.has(selectedId))selectedId=selectedSession;
+    if(selectedKind==="edge"&&!allEdges.has(selectedId)){selectedKind="node";selectedId=selectedSession}
+    if(!selectedId)selectedId=selectedSession;
+  }
+  function renderRoster(){
+    var q=byId("search").value.trim().toLowerCase(),list=sessions(),visible=list.filter(function(n){return n.label.toLowerCase().includes(q)});
+    byId("session-count").textContent="("+list.length+")";
+    byId("roster").innerHTML=visible.length?visible.map(function(n){
+      var role=(n.identity||{}).role||"unknown",symbol=n.observed===null?"?":n.observed?"●":"○";
+      var detail=role==="assigned"?"Assigned role":role==="unassigned"?"Unassigned role":"Role unknown";
+      return '<button class="roster-item'+(n.id===selectedSession?" active":"")+'" data-session="'+esc(n.id)+'" type="button" aria-current="'+(n.id===selectedSession?"true":"false")+'"><span class="symbol" aria-hidden="true">'+symbol+'</span><span><span class="name">'+esc(n.label)+'</span><small>'+esc(detail)+' · '+(n.stale?"last known":n.stale_fields&&n.stale_fields.length?"partial source":n.observed===null?"observation unknown":n.observed?"observed":"not observed")+'</small></span></button>';
+    }).join(""):'<p class="roster-empty">No matching sessions.</p>';
+  }
+  function relevant(){
+    if(!data||!selectedSession)return {tree:[],edges:[],related:[]};
+    var own=new Set([selectedSession]),queue=[selectedSession];
+    while(queue.length){var id=queue.shift();childrenOf(id).forEach(function(n){if(!own.has(n.id)){own.add(n.id);queue.push(n.id)}})}
+    var tree=data.nodes.filter(function(n){return own.has(n.id)});
+    var all=data.edges.filter(function(e){return own.has(e.from)||own.has(e.to)});
+    var relatedIds=new Set();all.forEach(function(e){if(!own.has(e.from))relatedIds.add(e.from);if(!own.has(e.to))relatedIds.add(e.to)});
+    var idx=nodeIndex(),related=Array.from(relatedIds).map(function(id){return idx[id]}).filter(Boolean);
+    return {tree:tree,edges:all,related:related};
+  }
+  function shape(n){
+    var cls=n.type==="host"?"host":n.type==="session"?"session":n.type==="pane"?"pane":n.type==="window"?"window":"resource";
+    if(n.type==="session")cls+=" "+((n.identity||{}).role==="assigned"?"assigned":(n.identity||{}).role==="unassigned"?"unassigned":"uncertain");
+    if(n.type==="chat"||n.type==="channel")cls+=" chat";
+    if(n.stale)cls+=" stale";else if(n.stale_fields&&n.stale_fields.length)cls+=" partial-source";
+    var icon={host:"⌂",session:"▣",window:"▤",pane:"▥",workspace:"▣",tool:"⚙",skill:"✦",file:"▤",channel:"◇",chat:"◇",agent:"☺"}[n.type]||"✦";
+    var sub=n.type==="session"?((n.identity||{}).role==="assigned"?"Assigned concern":(n.identity||{}).role==="unassigned"?"Unassigned concern":"Concern unknown"):n.type==="pane"?((n.process||{}).display||"Process unknown"):(n.observed===null?"Observation unknown":n.observed?"Observed":"Declared");
+    return '<button type="button" class="map-node '+cls+(selectedKind==="node"&&selectedId===n.id?" active":"")+'" data-node="'+esc(n.id)+'" style="left:'+n.x+'px;top:'+n.y+'px;width:'+n.w+'px" aria-label="Inspect '+esc(n.type+" "+n.label+(n.stale?" last known":n.stale_fields&&n.stale_fields.length?" partial source":""))+'"><span class="icon" aria-hidden="true">'+icon+'</span><span><small>'+esc(n.type)+(n.stale?" · LAST KNOWN":n.stale_fields&&n.stale_fields.length?" · PARTIAL":"")+'</small><strong>'+esc(n.label)+'</strong><em>'+esc(sub)+'</em></span></button>';
+  }
+  function centerX(n){return n.x+n.w/2} function centerY(n){return n.y+34}
+  function pathBetween(a,b,semantic,e){
+    if(!semantic){var x1=centerX(a),y1=a.y+68,x2=centerX(b),y2=b.y,m=(y1+y2)/2;return {d:"M"+x1+" "+y1+" V"+m+" H"+x2+" V"+y2,x:(x1+x2)/2,y:m}}
+    if((e.type==="hands_off_to"||e.type==="handoff")&&a.type==="session"&&b.type==="session"){
+      var left=a.x<b.x,x1=left?a.x+a.w-18:a.x+18,x2=left?b.x+18:b.x+b.w-18,top=Math.min(a.y,b.y)-32;
+      return {d:"M"+x1+" "+a.y+" V"+top+" H"+x2+" V"+b.y,x:(x1+x2)/2,y:top};
+    }
+    var sourceLeft=a.x>b.x,x1=sourceLeft?a.x:a.x+a.w,x2=sourceLeft?b.x+b.w:b.x;
+    var lane=e.type==="describes_session"?0:e.type==="chat_routes_to"?-17:e.type==="router_addressable"?-24:e.type==="router_agent_pane_ready"?25:0;
+    var y1=centerY(a)+lane,y2=centerY(b)+lane,m=(x1+x2)/2;
+    return {d:"M"+x1+" "+y1+" H"+m+" V"+y2+" H"+x2,x:m,y:(y1+y2)/2};
+  }
+  function renderDiagram(){
+    var diagram=byId("diagram"),wires=byId("wires"),layer=byId("node-layer"),tags=byId("edge-tags");
+    if(!data||!selectedSession){byId("diagram-scroll").hidden=true;byId("empty").hidden=false;layer.innerHTML="";wires.innerHTML="";tags.innerHTML="";return}
+    byId("diagram-scroll").hidden=false;byId("empty").hidden=true;
+    if(allMode){byId("diagram-scroll").hidden=true;byId("empty").hidden=true;byId("all-tree").hidden=false;renderAllTree();return}
+    byId("all-tree").hidden=true;
+    var idx=nodeIndex(),picked=idx[selectedSession],host=idx[picked.parent_id],r=relevant();
+    var windows=r.tree.filter(function(n){return n.type==="window"}).sort(function(a,b){return a.id.localeCompare(b.id)}),panes=r.tree.filter(function(n){return n.type==="pane"}).sort(function(a,b){return a.id.localeCompare(b.id)});
+    var placed={},nodes=[];
+    function put(n,x,y,w){if(!n||placed[n.id])return;var v=Object.assign({},n,{x:x,y:y,w:w||190});placed[n.id]=v;nodes.push(v)}
+    put(host,310,22,190);put(picked,295,156,218);
+    var span=Math.max(1,windows.length),start=295-(span-1)*105;
+    windows.forEach(function(n,i){put(n,start+i*210,287,190)});
+    panes.forEach(function(n){var win=placed[n.parent_id],siblings=panes.filter(function(p){return p.parent_id===n.parent_id}),i=siblings.indexOf(n);put(n,(win?win.x:295)+(i-(siblings.length-1)/2)*95,419+i*82,190)});
+    var drawEdges=r.edges.filter(function(e){return showComputed||e.evidence!=="computed"}).sort(function(a,b){return edgeOrder(a)-edgeOrder(b)||a.id.localeCompare(b.id)});
+    var ownIds=new Set(r.tree.map(function(n){return n.id}));
+    var relatedIds=new Set();drawEdges.forEach(function(e){if(!ownIds.has(e.from))relatedIds.add(e.from);if(!ownIds.has(e.to))relatedIds.add(e.to)});
+    var related=Array.from(relatedIds).map(function(id){return idx[id]}).filter(Boolean).slice(0,9);
+    related.forEach(function(n,i){put(n,700,150+i*108,218)});
+    var height=Math.max(640,250+related.length*108,520+Math.max(0,panes.length-1)*82);diagram.style.height=height+"px";wires.setAttribute("viewBox","0 0 960 "+height);
+    var lines=[],labels=[];
+    nodes.forEach(function(n){if(!n.parent_id||!placed[n.parent_id])return;var p=pathBetween(placed[n.parent_id],n,false);lines.push('<g class="wire contains" data-node="'+esc(n.id)+'" role="button" tabindex="0" aria-label="Inspect containment to '+esc(n.label)+'"><path class="line" d="'+p.d+'"></path><path class="hit" d="'+p.d+'"></path></g>')});
+    drawEdges.forEach(function(e){var a=placed[e.from],b=placed[e.to];if(!a||!b)return;var p=pathBetween(a,b,true,e),active=selectedKind==="edge"&&selectedId===e.id,dim=selectedKind==="edge"&&!active;
+      var arrow=e.evidence==="computed"?"computed":e.type==="chat_routes_to"?"chat":e.type==="uses_tool"||e.type==="executes_file"?"tool":e.type==="hands_off_to"||e.type==="handoff"?"handoff":"declared";
+      lines.push('<g class="wire semantic '+esc(e.evidence)+(e.stale?" stale":"")+(active?" active":"")+(dim?" dim":"")+'" data-type="'+esc(e.type)+'" data-edge="'+esc(e.id)+'" role="button" tabindex="0" aria-label="Inspect '+esc(edgeName(e)+" "+(e.display||"connection")+(e.stale?" last known":""))+'"><path class="line" d="'+p.d+'" marker-end="url(#arrow-'+arrow+')"></path><path class="hit" d="'+p.d+'"></path></g>');
+      var labelY=p.y+(e.type==="router_addressable"?-45:e.type==="router_agent_pane_ready"?45:-27);
+      labels.push('<button type="button" class="edge-tag '+esc(e.evidence)+(e.stale?" stale":"")+(active?" active":"")+(dim?" dim":"")+'" data-edge="'+esc(e.id)+'" style="left:'+p.x+'px;top:'+labelY+'px" aria-label="Inspect '+esc(edgeName(e)+" "+(e.display||"connection")+(e.stale?" last known":""))+'">→ '+esc(edgeName(e))+(e.stale?" · last known":"")+'</button>');
+    });
+    wires.innerHTML='<defs>'+[['handoff','#b5e87b'],['chat','#fc80dc'],['tool','#bda4ff'],['computed','#82aefe'],['declared','#ab8bbb']].map(function(v){return '<marker id="arrow-'+v[0]+'" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0 L9 4.5 L0 9 Z" fill="'+v[1]+'"></path></marker>'}).join('')+'</defs>'+lines.join("");
+    layer.innerHTML=nodes.map(shape).join("");tags.innerHTML=labels.join("");
+    byId("stage-title").textContent=picked.label+" · terminal branch";
+    byId("stage-subtitle").textContent=windows.length+" window"+(windows.length===1?"":"s")+" · "+panes.length+" pane"+(panes.length===1?"":"s")+" · "+r.edges.length+" named connection"+(r.edges.length===1?"":"s")+(relatedIds.size>9?" · "+(relatedIds.size-9)+" more endpoints in the list":"")+(showComputed?"":" · computed routes in list");
+  }
+  function treeHtml(id,idx){
+    var n=idx[id];if(!n)return "";var children=childrenOf(id);
+    return '<li><button type="button" data-node="'+esc(id)+'" class="'+(selectedKind==="node"&&selectedId===id?"active":"")+'"><strong>'+esc(n.type.toUpperCase()+" · "+n.label)+'</strong><small>'+esc(n.stale?"Last known · source unavailable":n.stale_fields&&n.stale_fields.length?"Partial source":n.type==="pane"?((n.process||{}).display||"Process unknown"):n.observed===null?"Observation unknown":n.observed?"Observed":"Declared")+'</small></button>'+(children.length?'<ol>'+children.map(function(c){return treeHtml(c.id,idx)}).join("")+'</ol>':"")+'</li>';
+  }
+  function renderAllTree(){
+    var idx=nodeIndex(),hosts=data.nodes.filter(function(n){return n.type==="host"}).sort(function(a,b){return a.id==="host:local"?-1:b.id==="host:local"?1:a.label.localeCompare(b.label)});
+    byId("all-tree").innerHTML='<div class="all-tree-intro"><strong>Complete terminal hierarchy</strong><span>'+sessions().length+' sessions · select any row to focus its pipes.</span></div><ol class="mobile-tree">'+hosts.map(function(h){return treeHtml(h.id,idx)}).join("")+'</ol>';
+    byId("stage-title").textContent="All terminals";byId("stage-subtitle").textContent="Host → session → window → pane. Named pipes appear in a focused branch.";
+  }
+  function renderMobile(){
+    byId("mobile-map").hidden=allMode;
+    if(!data||!selectedSession){byId("mobile-tree").innerHTML="";byId("connection-list").innerHTML="";return}
+    var idx=nodeIndex(),picked=idx[selectedSession],host=idx[picked.parent_id],r=relevant();
+    byId("mobile-tree").innerHTML=host?'<li><button type="button" data-node="'+esc(host.id)+'"><strong>HOST · '+esc(host.label)+'</strong><small>Observed host</small></button><ol>'+treeHtml(picked.id,idx)+'</ol></li>':treeHtml(picked.id,idx);
+    byId("connection-list").innerHTML=r.edges.length?r.edges.sort(function(a,b){return edgeOrder(a)-edgeOrder(b)||a.id.localeCompare(b.id)}).map(function(e){return '<button type="button" data-edge="'+esc(e.id)+'" class="'+(selectedKind==="edge"&&selectedId===e.id?"active":"")+'"><b><span>→ '+esc(edgeName(e))+'</span> · '+esc(e.display||nodeLabel(e.from)+" to "+nodeLabel(e.to))+'</b><small>'+esc(nodeLabel(e.from))+' → '+esc(nodeLabel(e.to))+' · '+esc(e.evidence)+(e.stale?" · last known":e.evidence==="computed"?" · delivery not observed":"")+'</small></button>'}).join(""):'<p class="roster-empty">No named connections are recorded for this branch.</p>';
+  }
+  function fact(label,value,cls){return '<div><dt>'+esc(label)+'</dt><dd'+(cls?' class="'+cls+'"':'')+'>'+esc(value)+'</dd></div>'}
+  function renderInspector(){
+    var idx=nodeIndex(),item=selectedKind==="edge"&&data?data.edges.find(function(e){return e.id===selectedId}):idx[selectedId],facts=[],title="",desc="",icon="⌂",kind="";
+    if(!item){byId("inspect-title").textContent="Inspect the network";byId("inspect-type").textContent="Select a node or pipe";byId("inspect-desc").textContent="The chart keeps declared identity separate from the process seen in a pane.";byId("facts").innerHTML="";return}
+    if(selectedKind==="edge"){
+      kind="Named pipe · "+edgeName(item);title=item.evidence==="computed"?edgeName(item):(item.display||nodeLabel(item.from)+" → "+nodeLabel(item.to));icon="→";
+      desc=nodeLabel(item.from)+" → "+nodeLabel(item.to)+". This "+item.evidence+" relationship has its own source and freshness.";
+      if(item.evidence==="computed")desc+=" Computed from the on-disk routing file and tmux at collection time. The active router configuration and message delivery are unverified.";
+      facts.push(fact("Flow",nodeLabel(item.from)+" → "+nodeLabel(item.to)),fact("Relationship",edgeName(item)),fact("Evidence",item.evidence),fact("Source",item.source||"Unknown",item.source?"":"fact-unknown"),fact("Source status",(item.freshness||{}).status||"Unknown",item.stale?"fact-stale":""),fact("As of",when((item.freshness||{}).as_of||(item.freshness||{}).source_mtime),item.stale?"fact-stale":""));
+      if(item.evidence==="computed"&&item.display)facts.push(fact("Snapshot note",item.display));
+      if(item.stale)facts.push(fact("Notice","Last-known pipe retained while its source is unavailable","fact-stale"));
+    }else{
+      kind=item.type+" node";title=item.label;icon={host:"⌂",session:"▣",window:"▤",pane:"▥",channel:"◇",tool:"⚙",skill:"✦",workspace:"▣",file:"▤"}[item.type]||"✦";
+      desc=item.type==="session"?"A durable session name. Its identity card and current pane are separate facts.":item.type==="pane"?"A live terminal pane. Foreground process recognition does not establish agent identity.":item.type==="host"?"The host at the top of this terminal branch.":"A named endpoint or container in the network.";
+      facts.push(fact("Declared",tri(item.declared),item.declared===null?"fact-unknown":""));
+      facts.push(fact("Observed",tri(item.observed),item.observed===null?"fact-unknown":""));
+      if(item.last_known_declared!==undefined)facts.push(fact("Last-known declaration",tri(item.last_known_declared),"fact-stale"));
+      if(item.last_known_observed!==undefined)facts.push(fact("Last-known observation",tri(item.last_known_observed),"fact-stale"));
+      if(item.identity){facts.push(fact("Card role",item.identity.role||"Unknown",item.stale_fields&&item.stale_fields.includes("identity")?"fact-stale":""));facts.push(fact("Identity card",tri(item.identity.card_present),item.identity.card_present===null?"fact-unknown":""));if(item.identity.card_updated_date)facts.push(fact("Card updated",item.identity.card_updated_date))}
+      if(item.last_known_identity)facts.push(fact("Last-known card role",item.last_known_identity.role||"Unknown","fact-stale"));
+      if(item.state&&item.state.status)facts.push(fact("Declared handoff state",item.state.status+(item.state.updated_date?" · "+item.state.updated_date:""),item.stale_fields&&item.stale_fields.includes("state")?"fact-stale":""));
+      if(item.last_known_state)facts.push(fact("Last-known handoff state",item.last_known_state.status||"Unknown","fact-stale"));
+      if(item.process){facts.push(fact("Observed process",item.process.display||item.process.classification||"Unknown"));facts.push(fact("Classification basis",item.process.basis||"Foreground command"))}
+      if(item.reachability)facts.push(fact("Reachability",item.reachability.replace(/_/g," ")));
+      if(item.standard){facts.push(fact("In session standard",tri(item.standard.present),item.standard.present===null?"fact-unknown":""));if(item.standard.source_mtime)facts.push(fact("Standard checked",when(item.standard.source_mtime)))}
+      if(item.root_evidence){var re=item.root_evidence,match=re.card_vs_standard_match!==undefined?re.card_vs_standard_match:re.card_vs_standard_agree;if(match!==undefined)facts.push(fact("Card vs standard root",match===null?"Unknown":match?"Agree":"Different",match===false?"fact-stale":""));if(re.observed_cwd_within_card!==undefined)facts.push(fact("Pane within card root",tri(re.observed_cwd_within_card),re.observed_cwd_within_card===false?"fact-stale":""));if(re.observed_cwd_within_standard!==undefined)facts.push(fact("Pane within standard root",tri(re.observed_cwd_within_standard),re.observed_cwd_within_standard===false?"fact-stale":""));if(re.as_of)facts.push(fact("Root check time",when(re.as_of)));if(re.source_refs)facts.push(fact("Root check sources",re.source_refs.join(" · ")))}
+      facts.push(fact("Sources",(item.source_refs||[]).join(" · ")||"Unknown"));
+      facts.push(fact("Observed at",when(item.observed_at),item.stale?"fact-stale":""));
+      if(item.stale)facts.push(fact("Notice","Last-known node retained while its source is unavailable","fact-stale"));
+    }
+    byId("inspect-icon").textContent=icon;byId("inspect-type").textContent=kind;byId("inspect-title").textContent=title;byId("inspect-desc").textContent=desc;byId("facts").innerHTML=facts.join("");
+  }
+  function render(){setStatus();chooseInitial();renderRoster();renderDiagram();renderMobile();renderInspector();byId("stage").classList.toggle("all-mode",allMode);byId("all-terminals").setAttribute("aria-pressed",allMode?"true":"false");byId("all-lines").setAttribute("aria-pressed",showComputed?"true":"false");byId("all-lines").textContent=showComputed?"Hide computed routes":"Show computed routes"}
+  function selectNode(id){selectedKind="node";selectedId=id;allMode=false;var idx=nodeIndex(),n=idx[id];while(n&&n.type!=="session"&&n.parent_id)n=idx[n.parent_id];if(n&&n.type==="session")selectedSession=n.id;render();if(matchMedia("(max-width:740px)").matches)byId("inspector").scrollIntoView({block:"start"})}
+  function selectEdge(id){selectedKind="edge";selectedId=id;allMode=false;render();if(matchMedia("(max-width:740px)").matches)byId("inspector").scrollIntoView({block:"start"})}
+  async function refresh(){
+    demo=false;var serial=++requestSerial;byId("refresh").disabled=true;
+    try{var res=await fetch("/api/fleet-map",{cache:"no-store"}),next=await res.json();if(serial!==requestSerial||demo)return;
+      if(!res.ok&&next.status!=="source_unavailable")throw Error("unavailable");
+      data=next;
+    }catch(e){if(serial!==requestSerial||demo)return;if(data&&data.status!=="demo"){data=Object.assign({},data,{status:"stale"})}else data={schema_version:"agent-fleet.snapshot.v1",collected_at:null,status:"source_unavailable",nodes:[],edges:[],summary:{},unknowns:[{kind:"source_unavailable",source:"collector"}]}}
+    finally{if(serial===requestSerial)byId("refresh").disabled=false}
+    render();
+  }
+  function synthetic(){requestSerial++;demo=true;data=JSON.parse(JSON.stringify(fixture));selectedSession=null;selectedId=null;selectedKind="node";render()}
+  document.addEventListener("click",function(ev){var session=ev.target.closest("[data-session]"),node=ev.target.closest("[data-node]"),edge=ev.target.closest("[data-edge]");if(session){selectNode(session.dataset.session);return}if(node){selectNode(node.dataset.node);return}if(edge){selectEdge(edge.dataset.edge)}});
+  document.addEventListener("keydown",function(ev){var el=ev.target.closest(".wire[data-edge],.wire[data-node]");if(el&&(ev.key==="Enter"||ev.key===" ")){ev.preventDefault();if(el.dataset.edge)selectEdge(el.dataset.edge);else selectNode(el.dataset.node)}});
+  byId("search").addEventListener("input",renderRoster);
+  byId("refresh").addEventListener("click",refresh);
+  byId("demo").addEventListener("click",synthetic);
+  byId("empty-demo").addEventListener("click",synthetic);
+  byId("all-terminals").addEventListener("click",function(){allMode=!allMode;render()});
+  byId("all-lines").addEventListener("click",function(){showComputed=!showComputed;render()});
+  function setZoom(value){zoom=Math.max(.55,Math.min(1.5,Math.round(value*20)/20));byId("diagram").style.zoom=Math.round(zoom*100)+"%";byId("zoom-level").textContent=Math.round(zoom*100)+"%"}
+  byId("zoom-out").addEventListener("click",function(){setZoom(zoom-.1)});
+  byId("zoom-in").addEventListener("click",function(){setZoom(zoom+.1)});
+  byId("zoom-fit").addEventListener("click",function(){setZoom((byId("diagram-scroll").clientWidth-14)/960)});
+  byId("diagram-toggle").addEventListener("click",function(){var stage=byId("stage"),open=stage.classList.toggle("diagram-open");this.setAttribute("aria-expanded",open?"true":"false");this.textContent=open?"Hide diagram ↑":"View diagram ↗"});
+  document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible"&&!demo)refresh()});
+  setInterval(function(){if(document.visibilityState==="visible"&&!demo)refresh()},12000);
+  refresh();
+})();
+</script>
+</body>
+</html>
