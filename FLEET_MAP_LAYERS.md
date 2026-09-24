@@ -47,13 +47,15 @@ Within each layer, one click opens a nearby detail card on desktop or a
 bottom sheet on mobile; it should not scroll the page to an inspector. Keep
 the breadcrumb, selected object, and layer switches in view. A pipe detail
 shows **from, to, what travels or what the relationship asserts, evidence,
-source, and time**. Switching layers preserves the selected object when that
-object exists there. A cross-layer chip can jump to its runtime or route.
+source, and time**. Switching layers keeps the selected session in focus and
+selects that session in the inspector. Clicking a linked object opens its
+runtime or route layer directly.
 
-Use solid lines for observed facts, dashed for declarations, dotted for
-computed eligibility, and amber with the original timestamp for retained
-last-known facts. Containment is structure, not message traffic. Some arrows
-describe a configured actor → target relation rather than byte direction:
+Evidence labels are explicit in each layer. In Terminal detail, solid lines
+mark observed hierarchy, dashed lines declarations, dotted lines computed
+eligibility, and amber marks dated last-known facts. Containment is
+structure, not message traffic. Some arrows describe a configured actor →
+target relation rather than byte direction:
 `outbox sender → outbox` means the sender consumes that queue. Repeated router
 checks to one target do not prove multiple deliveries.
 

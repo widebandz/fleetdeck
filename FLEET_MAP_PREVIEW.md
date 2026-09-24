@@ -3,7 +3,7 @@
 The fleet map is a metadata-only preview with a local adoption draft creator.
 Its listener cannot write to the registry, cards, tmux, or chat routes. It is
 disabled on the normal Fleetdeck portal. Run it on a separate unused loopback
-port that is **not** mapped through Tailscale Serve.
+port. Tailnet access is an explicit, separately reviewed Tailscale Serve route.
 
 From an isolated Fleetdeck checkout:
 
@@ -43,6 +43,17 @@ attach fresh attested occupants and managed leases after registry join. These
 are optional read stages; the host map, SSH targets, raw errors, and runtime
 receipt files do not enter the browser payload.
 
+Set `FLEETDECK_FLEET_INFRA` to the absolute `fleet_map_infra.py` executable
+to add bounded, read-only infrastructure facts after the runtime stage. Set
+`FLEETDECK_FLEET_SERVICES_FILE` to an existing service registry JSON if the
+host has one. The enrichment inventories safe service names and port-listener
+status, selected LaunchAgent jobs, Trace's declared duties, instruction-file
+presence, a symbolic outbox queue, and configured Tailscale Serve routes.
+It does not read message bodies, instruction contents, or raw paths into the
+browser. A listener on a registered port does not verify which process owns
+it; a configured route or sender does not prove a request or message was
+delivered.
+
 To enable those stages, export the following before running the preview
 command above:
 
@@ -51,6 +62,8 @@ export FLEETDECK_FLEET_REMOTE=/absolute/path/to/tm-fleet-remote
 export FLEETDECK_FLEET_REMOTE_HOST_MAP=/private/remote-hosts.json
 export FLEETDECK_FLEET_REMOTE_CACHE_DIR=/private/remote-cache
 export FLEETDECK_FLEET_RUNTIME=/absolute/path/to/tm-fleet-runtime
+export FLEETDECK_FLEET_INFRA=/absolute/path/to/fleet_map_infra.py
+export FLEETDECK_FLEET_SERVICES_FILE=/private/services.json
 ```
 
 Select a local observed session or pane, then choose **+ New Agent**. Existing
@@ -82,8 +95,13 @@ Run the offline checks with:
 
 ```sh
 python3 -m unittest -v test_fleet_map.py
+python3 -m unittest -v test_fleet_map_infra.py
 python3 test_fleetdeck.py --unit
 ```
 
-Do not add this port to Tailscale Serve or enable this flag on the installed
-portal until tailnet exposure of the redacted topology is reviewed.
+The local reviewed instance fronts loopback port `18790` with an additive,
+tailnet-only Tailscale Serve HTTPS route on `18970`. It does not use Funnel or
+publish the map. Before adding a route on another machine, review the redacted
+browser payload, use an unused HTTPS port, confirm existing Serve routes stay
+unchanged, and fetch the exact tailnet hostname URL. Keep the map flag off on
+the installed portal until that integration is reviewed separately.

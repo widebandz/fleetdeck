@@ -3,8 +3,8 @@
 Open the [live fleet map](https://brainwave.tailacfa70.ts.net:18970/fleet-map)
 while connected to the tailnet. The map is a read-only, redacted snapshot of
 the fleet. Selecting a box or arrow explains it in place; the layer tabs
-change how deep you look without losing the selected object. On a phone, the
-details open in a compact sheet.
+change how deep you look while keeping the same session in focus. On a phone,
+the details open in a compact sheet.
 
 The tabs run from **Overview → Identity → Routing → Runtime → Tools & skills →
 Memory & MD → Services & APIs → Network → Data & state → Deployment →
@@ -26,9 +26,10 @@ Trace session ──runs on──▶ brainwave Mac/server
 
 The bound chat is Trace's logical phone-side communication channel. The map
 does not identify the physical handset or prove a particular message arrived.
-The separate **Tailscale map-view route** carries HTTPS page/API requests to
-the server and responses back to a viewer. It is not the iMessage channel,
-and the map does not know whether the same phone used both.
+The separate **Tailscale map-view route** is configured to forward HTTPS
+page/API requests to the server. Responses follow the HTTPS connection, but
+the map does not observe individual requests or responses. This route is
+separate from iMessage, and the map does not know whether one phone used both.
 
 Click either arrow to see its source, time, and exact meaning. Click Trace to
 open **Identity**, the computer/server to open **Runtime**, or the chat
@@ -72,7 +73,7 @@ eligibility list.
 
 ## 4. Open the runtime branch
 
-Switch to **Runtime** and expand Trace. The observed structure is
+Switch to **Runtime** for Trace. The observed structure is
 **brainwave → Trace session → two windows → two panes**. At this audit, one
 pane was classified as Claude Code and the other as Codex. Pane process
 classifications can change and do not establish a durable Trace agent ID.

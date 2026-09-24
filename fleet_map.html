@@ -142,25 +142,59 @@
   .wire.semantic[data-type="planned_binding"] .line{stroke:#b5e87b;stroke-dasharray:7 5}.wire.semantic[data-type="verified_binding"] .line{stroke:#b5e87b;stroke-width:4}
   .wire.semantic[data-type="occupies"] .line{stroke:#4cdbf0;stroke-width:4}.wire.semantic[data-type="work_lease"] .line{stroke:#f7c872;stroke-dasharray:9 4}
   .wire.semantic[data-type="path_claim"] .line{stroke:#f7c872;stroke-dasharray:3 5}.map-node.resource.path-claim{border-color:#ad8651;background:#312a25}.map-node.resource.path-claim .icon{color:#f7c872;background:#443522}
+  .layer-bar{display:flex;align-items:center;gap:10px;padding:9px 13px;border-bottom:1px solid var(--line);background:#0c1b2a;min-width:0}
+  .layer-bar>span{flex:none;color:#8db2c4;font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+  .layer-tabs{display:flex;gap:5px;min-width:0;overflow-x:auto;scrollbar-color:#466981 transparent;padding:2px 1px 5px;white-space:nowrap}
+  .layer-tabs button{flex:none;border:1px solid #3a576c;border-radius:7px;background:#12283a;color:#c1d9e5;padding:6px 9px;font-size:11px;font-weight:800}
+  .layer-tabs button:hover{border-color:#4cdbf0}.layer-tabs button[aria-pressed="true"]{background:#225069;border-color:#4cdbf0;color:#e9fcff}
+  .layer-tabs button .layer-number{color:#8db5c8;margin-right:5px}
+  .layer-view{flex:1;min-height:0;overflow:auto;padding:20px clamp(14px,3vw,30px);background-color:#091724;background-image:linear-gradient(rgba(87,131,158,.1) 1px,transparent 1px),linear-gradient(90deg,rgba(87,131,158,.1) 1px,transparent 1px);background-size:28px 28px}
+  .layer-intro{max-width:940px;display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin:0 auto 18px}
+  .layer-intro h3{font-size:22px;line-height:1.1;letter-spacing:-.045em;margin:3px 0 7px}.layer-intro p{max-width:690px;margin:0;color:#b1cbd8;font-size:12px;line-height:1.55}
+  .layer-depth{flex:none;padding:5px 8px;border:1px solid #44677b;border-radius:6px;color:#9ed9e8;font-size:10px;font-weight:800}
+  .layer-body{max-width:940px;margin:auto}.layer-section{margin:0 0 22px}.layer-section h4{margin:0 0 9px;color:#b7d9e8;font-size:11px;letter-spacing:.12em;text-transform:uppercase}
+  .overview-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,.65fr) minmax(0,1fr) minmax(120px,.65fr) minmax(0,1fr);align-items:center;gap:8px;margin:22px 0 20px}
+  .layer-object{display:flex;flex-direction:column;align-items:flex-start;gap:5px;width:100%;min-height:112px;text-align:left;padding:15px;border:1px solid #4a6d82;border-radius:13px;background:#142b3e;color:#eaf8ff;box-shadow:0 10px 22px #0002}
+  .layer-object:hover{border-color:#4cdbf0;background:#1a3c53}.layer-object.active{outline:3px solid var(--focus);outline-offset:2px}.layer-object.unknown{border-style:dashed;border-color:#937850;background:#2b291f;color:#f8dbab;cursor:default}.layer-object .object-kind{color:#93c8da;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:900}.layer-object.unknown .object-kind{color:#efc47e}
+  .layer-object strong{font-size:17px;line-height:1.15;overflow-wrap:anywhere}.layer-object small{font-size:11px;color:#b0cbd8;line-height:1.4}.layer-object.unknown small{color:#e6cda4}.layer-object .object-more{margin-top:auto;color:#75e3ed;font-size:10px;font-weight:800}.layer-object.unknown .object-more{color:#f7c872}
+  .overview-pipe{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;color:#c9e8f1;min-width:0}
+  .overview-pipe .flow-arrow{display:block;width:100%;font-size:30px;line-height:1;color:#4cdbf0}.overview-pipe.reverse .flow-arrow{color:#fc80dc}.overview-pipe .flow-name{display:block;font-size:11px;font-weight:900;line-height:1.3}.overview-pipe .flow-payload{display:block;margin-top:3px;font-size:10px;line-height:1.35;color:#a7c0ce}.overview-pipe button{display:block;width:100%;border:0;background:none;color:inherit;padding:0;text-align:center;cursor:pointer}.overview-pipe button:hover .flow-name{text-decoration:underline}
+  .overview-pipe.unknown .flow-arrow{color:#f7c872}.overview-pipe.unknown .flow-name{color:#f7c872}
+  .layer-note{padding:12px 14px;border:1px solid #36566d;border-radius:9px;background:#102538;color:#b9d3df;font-size:11px;line-height:1.5}.layer-note strong{color:#e5f8ff}
+  .layer-rows{display:grid;gap:8px}.layer-flow{display:grid;grid-template-columns:minmax(125px,1fr) minmax(170px,1.1fr) minmax(125px,1fr);gap:8px;align-items:stretch}
+  .layer-flow .layer-object{min-height:96px}.layer-flow .layer-object strong{font-size:14px}.layer-flow .layer-object small{font-size:10px}
+  .flow-center{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px;width:100%;padding:9px;border:1px solid #507c91;border-radius:9px;background:#133147;color:#dbf4fb;text-align:center;cursor:pointer}
+  .flow-center:hover{border-color:#4cdbf0;background:#1a435a}.flow-center.active{outline:3px solid var(--focus);outline-offset:2px}.flow-center strong{font-size:12px;line-height:1.3}.flow-center .flow-direction{font-size:22px;line-height:1;color:#4cdbf0}.flow-center small{color:#afd0df;font-size:10px;line-height:1.4}.flow-center em{color:#e9bf89;font-style:normal;font-size:10px}
+  .layer-empty{border:1px dashed #87734f;border-radius:11px;padding:15px;background:#29281f;color:#f4d7a5;font-size:12px;line-height:1.5}.layer-empty strong{display:block;margin-bottom:4px;color:#ffdfae}
+  .responsibility-list{margin:0;padding:0 0 0 19px;color:#d7edf5;font-size:12px;line-height:1.5}.responsibility-list li{margin:6px 0}.responsibility-source{font-size:10px;color:#a6c4d3;margin:9px 0 0}.responsibility-stale{color:#f4ce98}
+  .layer-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:8px}.layer-cards .layer-object{min-height:100px}
+  .layer-actions{display:flex;justify-content:space-between;gap:8px;margin-top:22px}.layer-actions .btn{font-size:11px}.inspect-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.inspect-close{display:none}.inspect-deeper{margin-top:13px}
+  .roster-toggle{display:none}
+  .stage.layer-mode .diagram-scroll,.stage.layer-mode .all-tree,.stage.layer-mode .mobile-map,.stage.layer-mode .legend{display:none!important}
+  @media(max-width:1150px){.overview-grid{grid-template-columns:minmax(0,1fr);max-width:420px;margin:14px auto}.overview-grid>.layer-object,.overview-grid>.overview-pipe{grid-column:1}.overview-pipe{min-height:65px}.overview-pipe .flow-arrow{height:29px;font-size:0}.overview-pipe .flow-arrow::after{content:"↑";font-size:30px}}
+  @media(max-width:780px){.layer-bar{display:block;padding:8px 11px}.layer-bar>span{display:block;margin-bottom:5px}.layer-view{min-height:390px;max-height:calc(100dvh - 285px);padding:15px 12px}.layer-intro{display:block}.layer-depth{display:inline-block;margin-top:10px}.overview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin:14px 0;max-width:none}.overview-grid>:nth-child(3){grid-column:1 / -1;grid-row:1}.overview-grid>:nth-child(2){grid-column:1;grid-row:2}.overview-grid>:nth-child(4){grid-column:2;grid-row:2}.overview-grid>:nth-child(1){grid-column:1;grid-row:3}.overview-grid>:nth-child(5){grid-column:2;grid-row:3}.overview-grid>:nth-child(2) .flow-arrow::after{content:"↓"}.overview-pipe{min-height:65px}.layer-flow{grid-template-columns:minmax(0,1fr);gap:4px}.flow-center{min-height:76px}.flow-center .flow-direction{height:24px;font-size:0}.flow-center .flow-direction::after{content:"↓";font-size:22px}.inspector{display:none;position:fixed;z-index:20;left:0;right:0;bottom:0;width:100%;height:auto;max-height:min(75dvh,650px);min-height:0;overflow:auto;border-top:2px solid #4cdbf0;box-shadow:0 -16px 50px #000b}.inspector.is-open{display:block}.inspect-close{display:inline-block}.inspector-body{padding:16px}.stage{min-height:0}.stage-head{gap:8px}.stage-actions{justify-content:flex-start}.layer-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.roster{max-height:none}.roster-list{display:none}.roster.is-open .roster-list{display:grid;max-height:220px;overflow:auto}.roster-toggle{display:inline-block;float:right;margin-top:-31px}.roster .panel-head{padding:11px 14px}.roster .panel-head p{margin-right:115px}}
+  @media(max-width:440px){.hero{padding:7px 12px}.hero h1{font-size:19px}.hero p{display:none}.status-pill{margin-top:5px;padding:5px 9px}.toolbar{padding:6px 11px}.stamp{display:none}.layer-cards{grid-template-columns:minmax(0,1fr)}.layer-intro h3{display:none}.layer-intro p{font-size:11px}.stage-head{display:block;padding:8px 12px}.stage-actions{margin-top:8px}.roster .panel-head{position:relative;padding-right:142px}.roster .panel-head p{margin-right:0}.roster-toggle{position:absolute;right:12px;bottom:11px;float:none;margin:0}}
   @media(max-width:620px){.creator{width:100vw;max-height:100dvh;height:100dvh;border:0;border-radius:0}.creator-head,.creator-body{padding-left:17px;padding-right:17px}.creator-context{grid-template-columns:1fr 1fr}.creator-diff div{grid-template-columns:1fr;gap:2px}}
 </style>
 </head>
 <body>
 <header class="mast"><a class="brand" href="/fleet-map"><span class="brand-mark" aria-hidden="true">⌂</span><span>Wideband <small>TERMINAL NETWORK</small></span></a><nav aria-label="Pages"><a class="nav active" href="/fleet-map" aria-current="page">Terminal map</a></nav></header>
 <main>
-  <div class="hero"><div><span class="eyebrow">Local preview · read only</span><h1>Live terminal network.</h1><p>Follow a host to its session, window, and pane. Select a named pipe to see why two things are connected and when that claim was checked.</p></div><span class="status-pill" id="status" data-state="source_unavailable" aria-live="polite">◌ Connecting</span></div>
+  <div class="hero"><div><span class="eyebrow">Tailnet preview · read only</span><h1>Live fleet layers.</h1><p>Start with one session and follow the sourced plumbing. Open a layer for more depth; select any object or directional pipe to inspect its evidence in place.</p></div><span class="status-pill" id="status" data-state="source_unavailable" aria-live="polite">◌ Connecting</span></div>
   <div class="notice" id="notice" role="status" hidden></div>
   <div class="toolbar"><label><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Find a session" aria-label="Find a session"></label><button class="btn primary" id="new-agent" type="button">＋ New Agent</button><button class="btn" id="refresh" type="button">↻ Refresh</button><button class="btn" id="demo" type="button">✦ Try synthetic tour</button><span class="stamp" id="stamp">Waiting for a snapshot</span></div>
   <div class="layout">
-    <aside class="panel roster" aria-label="Terminal branches"><div class="panel-head"><span class="eyebrow">Branch index</span><h2>Sessions <span id="session-count"></span></h2><p>Pick a branch to zoom into its terminals.</p></div><div class="roster-list" id="roster"></div></aside>
-    <section class="panel stage" id="stage" aria-labelledby="stage-title"><div class="stage-head"><div><span class="eyebrow">Org chart · click any node or pipe</span><h2 id="stage-title">Terminal map</h2><p id="stage-subtitle">A branch and its named connections appear here.</p></div><div class="stage-actions"><button class="btn" id="all-terminals" type="button" aria-pressed="false">All terminals</button><button class="btn" id="all-lines" type="button" aria-pressed="false">Show computed routes</button><div class="zoom-controls" role="group" aria-label="Diagram zoom"><button class="btn" id="zoom-out" type="button" aria-label="Zoom out">−</button><output id="zoom-level" aria-live="polite">100%</output><button class="btn" id="zoom-in" type="button" aria-label="Zoom in">+</button><button class="btn" id="zoom-fit" type="button" aria-label="Fit diagram to width">Fit</button></div></div></div>
+    <aside class="panel roster" id="roster-panel" aria-label="Terminal branches"><div class="panel-head"><span class="eyebrow">Branch index</span><h2>Sessions <span id="session-count"></span></h2><p id="roster-caption">Pick a branch to zoom into its terminals.</p><button class="btn roster-toggle" id="roster-toggle" type="button" aria-expanded="false" aria-controls="roster">Browse sessions</button></div><div class="roster-list" id="roster"></div></aside>
+    <section class="panel stage" id="stage" aria-labelledby="stage-title"><div class="stage-head"><div><span class="eyebrow">Infrastructure · follow the evidence</span><h2 id="stage-title">Fleet layers</h2><p id="stage-subtitle">A simple overview, then the real stack.</p></div><div class="stage-actions" id="terminal-actions" hidden><button class="btn" id="all-terminals" type="button" aria-pressed="false">All terminals</button><button class="btn" id="all-lines" type="button" aria-pressed="false">Show computed routes</button><div class="zoom-controls" role="group" aria-label="Diagram zoom"><button class="btn" id="zoom-out" type="button" aria-label="Zoom out">−</button><output id="zoom-level" aria-live="polite">100%</output><button class="btn" id="zoom-in" type="button" aria-label="Zoom in">+</button><button class="btn" id="zoom-fit" type="button" aria-label="Fit diagram to width">Fit</button></div></div></div>
+      <div class="layer-bar"><span>Show layer</span><div class="layer-tabs" id="layer-tabs" role="group" aria-label="Infrastructure layers"></div></div>
       <div class="legend" aria-label="Diagram key"><span><b>│</b> Contains</span><span><b class="purple">→</b> Declared relation</span><span><b class="blue">⋯</b> On-disk routing + tmux · delivery unverified</span><span><b class="rose">◇</b> Dashed amber · last known</span></div>
+      <div class="layer-view" id="layer-view" aria-live="polite"></div>
       <div class="diagram-scroll" id="diagram-scroll" tabindex="0" aria-label="Scrollable terminal diagram"><div class="diagram" id="diagram"><svg id="wires" aria-label="Terminal hierarchy and typed connections"></svg><div class="node-layer" id="node-layer"></div><div class="edge-tags" id="edge-tags"></div></div></div>
       <div class="all-tree" id="all-tree" hidden></div>
       <div class="mobile-map" id="mobile-map"><div class="mobile-head"><h3>Terminals, top to bottom</h3><button class="btn" type="button" id="diagram-toggle" aria-expanded="false" aria-controls="diagram-scroll">View diagram ↗</button></div><ol class="mobile-tree" id="mobile-tree"></ol><h4>Named connections</h4><div class="connection-list" id="connection-list"></div></div>
       <div class="map-empty" id="empty" hidden><span class="face" aria-hidden="true">◌</span><h2>No snapshot yet</h2><p>The local snapshot source is unavailable. Check the collector or try the synthetic tour.</p><button class="btn primary" type="button" id="empty-demo">Try synthetic tour</button></div>
     </section>
-    <aside class="panel inspector" id="inspector" aria-labelledby="inspect-title"><div class="inspector-body"><span class="inspect-icon" id="inspect-icon" aria-hidden="true">⌂</span><span class="inspect-kicker" id="inspect-type">Select a node or pipe</span><h2 class="inspect-title" id="inspect-title" tabindex="-1">Inspect the network</h2><p class="inspect-desc" id="inspect-desc">The chart keeps declared identity separate from the process seen in a pane.</p><dl class="facts" id="facts"></dl><div class="creator-actions" id="inspector-actions" hidden><button class="btn primary" id="inspector-new-agent" type="button">＋ Adopt this terminal</button></div><p class="inspect-note">Pane text and messages are never read for this map. A process name does not prove an agent identity.</p></div></aside>
+    <aside class="panel inspector" id="inspector" aria-labelledby="inspect-title"><div class="inspector-body"><div class="inspect-top"><span class="inspect-icon" id="inspect-icon" aria-hidden="true">⌂</span><button class="btn inspect-close" id="inspect-close" type="button" aria-label="Close details">× Close</button></div><span class="inspect-kicker" id="inspect-type">Select a node or pipe</span><h2 class="inspect-title" id="inspect-title" tabindex="-1">Inspect the network</h2><p class="inspect-desc" id="inspect-desc">The chart keeps declared identity separate from the process seen in a pane.</p><dl class="facts" id="facts"></dl><button class="btn inspect-deeper" id="inspect-deeper" type="button" hidden>Open next layer →</button><div class="creator-actions" id="inspector-actions" hidden><button class="btn primary" id="inspector-new-agent" type="button">＋ Adopt this terminal</button></div><p class="inspect-note">Pane text and messages are never read for this map. A process name does not prove an agent identity.</p></div></aside>
   </div>
   <p class="foot"><strong>How to read it:</strong> solid stems contain windows and panes; arrows show directed named relationships. Dotted blue pipes are computed eligibility at collection time, not delivered messages. Select a pipe to inspect its source and age.</p>
 </main>
@@ -219,16 +253,32 @@
     {id:"uses:moss:review",from:"session:moss",to:"tool:review",type:"uses_tool",evidence:"declared",source:"synthetic",freshness:{as_of:"2026-09-24T00:00:00Z",status:"sample"},display:"Source review"},
     {id:"inbox:pip",from:"channel:inbox",to:"session:pip",type:"chat_routes_to",evidence:"declared",source:"synthetic",freshness:{as_of:"2026-09-24T00:00:00Z",status:"sample"},display:"Inbox → Pip"}
   ]};
-  var data=null,demo=false,selectedSession=null,selectedKind="node",selectedId=null,requestSerial=0,allMode=false,showComputed=false,zoom=1;
+  var data=null,demo=false,selectedSession=null,selectedKind="node",selectedId=null,requestSerial=0,allMode=false,showComputed=false,zoom=1,activeLayer="overview",relationIndex={},expandedLayers={};
+  var layerDefs=[
+    {id:"overview",name:"Overview",title:"One session, two sides",description:"Start with the session, the computer that runs it, and its configured contact point. A physical phone and message delivery require separate evidence."},
+    {id:"identity",name:"Identity",title:"Identity and responsibility",description:"A session name, identity card, registry agent, and current pane occupant are separate facts. Responsibilities appear only when the source exposes them."},
+    {id:"routing",name:"Routing",title:"Instructions and routes",description:"Follow configured ownership, target descriptions, and computed eligibility. Each arrow names what it represents; eligibility does not prove delivery."},
+    {id:"runtime",name:"Runtime",title:"Runtime and process",description:"The observed host contains a tmux session, windows, and panes. Foreground process recognition describes a pane, not its agent identity."},
+    {id:"capabilities",name:"Tools & skills",title:"Tools and skills",description:"Declared capabilities and observed use are different. A listed tool is not proof that the session invoked it."},
+    {id:"instructions",name:"Memory & MD",title:"Memory and instructions",description:"Identity cards, standards, and instruction files can guide a session. This map shows only inventoried metadata, not private file contents."},
+    {id:"services",name:"Services & APIs",title:"Services and APIs",description:"This layer shows source-backed service and API dependencies when the snapshot includes them."},
+    {id:"network",name:"Network",title:"Network and access",description:"Host reachability and explicit SSH or Tailscale routes appear here when inventoried. A chat endpoint is not a physical device."},
+    {id:"state",name:"Data & state",title:"Data and state",description:"Workspace claims, current leases, and declared handoff state are separate from all direct shell activity."},
+    {id:"deployment",name:"Deployment",title:"Deployment infrastructure",description:"Builds, release targets, and hosting appear only when a source supplies them."},
+    {id:"terminals",name:"Terminal detail",title:"Terminal detail",description:"Inspect the full tmux branch and its named relationships. Use the branch index to switch sessions."}
+  ];
+  var layerById=function(id){return layerDefs.find(function(l){return l.id===id})||layerDefs[0]};
   var creatorDraft=null,creatorRevision=null,creatorFilename=null,creatorSessionId=null,creatorPaneId=null,creatorReturnFocus=null;
   var nodeIndex=function(){var m={};if(data)data.nodes.forEach(function(n){m[n.id]=n});return m};
   var childrenOf=function(id){return data?data.nodes.filter(function(n){return n.parent_id===id}):[]};
   var sessions=function(){return data?data.nodes.filter(function(n){return n.type==="session"}).sort(function(a,b){return a.label.localeCompare(b.label)}):[]};
-  var nodeLabel=function(id){var n=nodeIndex()[id];return n?n.label:id};
+  var nodeDisplayLabel=function(n){return n&&n.type==="chat"&&/^Bound chat → /.test(n.label)?"Bound chat channel":n?n.label:"Unknown"};
+  var nodeLabel=function(id){var n=nodeIndex()[id];return n?nodeDisplayLabel(n):id};
   var age=function(value){if(!value)return "unknown";var d=Date.parse(value);if(!Number.isFinite(d))return value;var s=Math.max(0,Math.floor((Date.now()-d)/1000));return s<60?"just now":s<3600?Math.floor(s/60)+" min ago":s<86400?Math.floor(s/3600)+" h ago":Math.floor(s/86400)+" d ago"};
   var when=function(value){if(!value)return "Unknown";var d=new Date(value);return Number.isNaN(d.getTime())?value:d.toLocaleString()};
   var tri=function(v){return v===true?"✓ Yes":v===false?"○ No":"? Unknown"};
-  var edgeName=function(e){return ({hands_off_to:"Handoff",handoff:"Handoff",planned_binding:"Planned agent binding",verified_binding:"Verified registry binding",path_claim:"Approved path claim",occupies:"Attested pane occupant",work_lease:"Managed work lease",chat_routes_to:"Chat route",describes_session:"Description",router_addressable:"Addressable in snapshot",router_agent_pane_ready:"Pane ready in snapshot",executes_file:"Executes file",uses_tool:"Uses tool"})[e.type]||e.type.replace(/_/g," ")};
+  var edgeName=function(e){return ({hands_off_to:"Declared handoff",handoff:"Declared handoff",planned_binding:"Planned agent binding",verified_binding:"Verified registry binding",path_claim:"Approved path claim",occupies:"Attested pane occupant",work_lease:"Managed work lease",chat_routes_to:"Chat ownership route",handles_bound_chat:"Configured chat handler",describes_session:"Routing description",router_addressable:"Addressable in snapshot",router_agent_pane_ready:"Pane ready in snapshot",executes_file:"Lists script",uses_tool:"Lists tool",uses_skill:"Lists skill",uses_workspace:"Declares workspace",reads_file:"Declares file read",bound_chat:"Bound chat",declares_service:"Declares service",runs_service:"Listener on registered port",proxy_routes_to:"Proxy route",schedules_job:"Registered LaunchAgent",launches:"Configured launch",writes_queue:"Declared queue writer",consumes_queue:"Declared queue reader",sends_chat:"Configured chat sender",has_instruction_file:"Instruction file in root",contains:"Contains",runs_on:"Runs on",uses:"Declared use",reads:"Declared read"})[e.type]||e.type.replace(/_/g," ")};
+  var edgePayload=function(e){return ({hands_off_to:"Intended work handoff; content and delivery unobserved",handoff:"Intended work handoff; content and delivery unobserved",planned_binding:"Registry identity metadata; no live occupant claim",verified_binding:"Registry identity metadata; current occupant separate",path_claim:"Approved workspace ownership claim; path redacted",occupies:"Time-bound launcher receipt for current pane occupant",work_lease:"Managed edit lease metadata",chat_routes_to:"Inbound chat events are configured to target this session; delivery unobserved",handles_bound_chat:"Configured incoming chat events; delivery unobserved",bound_chat:"Configured chat binding; delivery unobserved",describes_session:"Target description metadata; no messages carried",router_addressable:"Computed routing eligibility only; no delivery observed",router_agent_pane_ready:"Computed pane readiness only; no delivery observed",executes_file:"Declared script listing; invocation unobserved",uses_tool:"Declared tool capability; invocation unobserved",uses_skill:"Declared skill capability; invocation unobserved",uses_workspace:"Declared workspace relationship; access unobserved",reads_file:"Declared read relationship; file content hidden",declares_service:"Service declaration metadata; runtime separate",runs_service:"Registered port has a listener; process identity unverified",proxy_routes_to:"Configured proxy forwarding; requests unobserved",schedules_job:"LaunchAgent registration; execution separate",launches:"Configured job launch; execution separate",writes_queue:"Queued data intent; writes unobserved",consumes_queue:"Queued data intent; reads unobserved",sends_chat:"Configured queue-to-chat target; delivery unobserved",has_instruction_file:"Instruction file present in declared root; load unobserved",contains:"Observed hierarchy; no message traffic claimed",runs_on:"Observed tmux placement; no network traffic claimed",uses:"Declared use relationship; actual use unobserved",reads:"Declared read relationship; content hidden"})[e.type]||"Relationship metadata; actual traffic unknown"};
   var edgeOrder=function(e){return ({hands_off_to:0,handoff:0,occupies:1,planned_binding:2,verified_binding:2,path_claim:3,work_lease:3,chat_routes_to:4,uses_tool:5,executes_file:6,describes_session:7,router_addressable:8,router_agent_pane_ready:9})[e.type]??7};
   var occupiedNow=function(agentId){return !!(data&&data.edges.some(function(e){return e.type==="occupies"&&e.from===agentId&&!e.stale}))};
   function setStatus(){
@@ -249,12 +299,13 @@
   function chooseInitial(){
     var list=sessions(),ids=new Set(list.map(function(n){return n.id}));
     if(!ids.has(selectedSession)){
+      var trace=list.find(function(n){return n.label.toLowerCase()==="trace"});
       var handoff=data.edges.find(function(e){return (e.type==="hands_off_to"||e.type==="handoff")&&ids.has(e.from)});
       var ranked=list.slice().sort(function(a,b){
         var count=function(n){return data.edges.filter(function(e){return e.evidence!=="computed"&&(e.from===n.id||e.to===n.id)}).length};
         return count(b)-count(a)||a.label.localeCompare(b.label)
       });
-      selectedSession=(handoff?{id:handoff.from}:ranked[0]||{}).id||null;
+      selectedSession=(trace||(handoff?{id:handoff.from}:ranked[0])||{}).id||null;
     }
     var allIds=new Set(data.nodes.map(function(n){return n.id})),allEdges=new Set(data.edges.map(function(e){return e.id}));
     if(selectedKind==="node"&&!allIds.has(selectedId))selectedId=selectedSession;
@@ -264,6 +315,7 @@
   function renderRoster(){
     var q=byId("search").value.trim().toLowerCase(),list=sessions(),visible=list.filter(function(n){return n.label.toLowerCase().includes(q)});
     byId("session-count").textContent="("+list.length+")";
+    byId("roster-caption").textContent="Selected: "+nodeLabel(selectedSession);
     byId("roster").innerHTML=visible.length?visible.map(function(n){
       var role=(n.identity||{}).role||"unknown",symbol=n.observed===null?"?":n.observed?"●":"○";
       var detail=role==="assigned"?"Assigned role":role==="unassigned"?"Unassigned role":"Role unknown";
@@ -281,6 +333,129 @@
     var relatedIds=new Set();all.forEach(function(e){if(!own.has(e.from))relatedIds.add(e.from);if(!own.has(e.to))relatedIds.add(e.to)});
     var related=Array.from(relatedIds).map(function(id){return idx[id]}).filter(Boolean);
     return {tree:tree,edges:all,related:related};
+  }
+  function layerForEdge(e){
+    if(e.layer)return ({data:"state",memory:"instructions",tools:"capabilities",skills:"capabilities"})[e.layer]||e.layer;
+    if(["hands_off_to","handoff","chat_routes_to","handles_bound_chat","bound_chat","describes_session","router_addressable","router_agent_pane_ready","sends_chat"].includes(e.type))return "routing";
+    if(["planned_binding","verified_binding","occupies"].includes(e.type))return "identity";
+    if(["uses_tool","uses_skill","executes_file"].includes(e.type))return "capabilities";
+    if(["reads_file","reads","has_instruction_file"].includes(e.type))return "instructions";
+    if(["declares_service","runs_service","uses","proxy_routes_to"].includes(e.type))return "services";
+    if(["writes_queue","consumes_queue","uses_workspace","path_claim","work_lease"].includes(e.type))return "state";
+    if(["launches","schedules_job"].includes(e.type))return "deployment";
+    return "other";
+  }
+  function scopedEdges(layer){
+    if(!data||!selectedSession)return [];
+    var idx=nodeIndex(),r=relevant(),host=idx[(idx[selectedSession]||{}).parent_id],ids=new Set(r.tree.map(function(n){return n.id})),edges=[],seen=new Set();
+    r.edges.forEach(function(e){if(e.evidence==="computed"||["describes_session","hands_off_to","handoff"].includes(e.type))return;if(ids.has(e.from)&&idx[e.to]&&idx[e.to].type!=="session")ids.add(e.to);if(ids.has(e.to)&&idx[e.from]&&idx[e.from].type!=="session")ids.add(e.from)});
+    r.edges.forEach(function(e){if(layerForEdge(e)===layer&&!seen.has(e.id)){seen.add(e.id);edges.push(e);ids.add(e.from);ids.add(e.to)}});
+    if(host&&["services","network","deployment"].includes(layer))data.edges.forEach(function(e){if(layerForEdge(e)===layer&&(layer==="network"||e.from===host.id||e.to===host.id)&&!seen.has(e.id)){seen.add(e.id);edges.push(e);ids.add(e.from);ids.add(e.to)}});
+    for(var depth=0;depth<2;depth++){
+      var changed=false;
+      data.edges.forEach(function(e){if(layerForEdge(e)!==layer||seen.has(e.id)||(!ids.has(e.from)&&!ids.has(e.to)))return;
+        var a=idx[e.from],b=idx[e.to];if((a&&a.type==="session"&&a.id!==selectedSession)||(b&&b.type==="session"&&b.id!==selectedSession))return;
+        seen.add(e.id);edges.push(e);ids.add(e.from);ids.add(e.to);changed=true;
+      });
+      if(!changed)break;
+    }
+    var focus=(idx[selectedSession]||{}).label.toLowerCase();
+    function priority(e){var text=[e.id,e.display,(idx[e.from]||{}).label,(idx[e.to]||{}).label].join(" ").toLowerCase();return (e.from===selectedSession||e.to===selectedSession?100:0)+(focus&&text.includes(focus)?60:0)+(text.includes("fleet-map")?50:0)+(text.includes("bound-trace")?40:0)}
+    return edges.sort(function(a,b){return priority(b)-priority(a)||edgeOrder(a)-edgeOrder(b)||a.id.localeCompare(b.id)});
+  }
+  function nodeSummary(n){
+    if(!n)return "Evidence unavailable";
+    if(n.stale)return "Last known · source unavailable";
+    if(n.type==="session")return ((n.identity||{}).role==="assigned"?"Assigned card":(n.identity||{}).role==="unassigned"?"Unassigned card":"Role unknown")+" · "+(n.observed===true?"observed session":"observation unknown");
+    if(n.type==="pane")return ((n.process||{}).display||"Process unknown")+" · occupant separate";
+    if(n.type==="host")return n.observed===true?"Observed computer / server":"Host observation unknown";
+    if(n.type==="chat"||n.type==="channel")return "Configured contact point · physical device unknown";
+    if(n.type==="agent")return (n.registry||{}).state?"Registry "+n.registry.state+" · occupant separate":"Stable identity · binding unknown";
+    if(n.type==="tool"||n.type==="skill")return "Declared capability · use unobserved";
+    if(n.type==="workspace")return "Workspace relationship · path redacted";
+    if(n.type==="instruction"||n.type==="file")return "Instruction or file metadata · content hidden";
+    if(n.type==="service")return [n.kind,n.reach,n.status?"Port "+n.status:""].filter(Boolean).join(" · ")||"Service metadata";
+    if(n.type==="endpoint")return [n.transport,n.status].filter(Boolean).join(" · ")||"Endpoint metadata";
+    if(n.type==="job")return n.status||"Job status unknown";
+    if(n.type==="data")return "Symbolic data/state · content hidden";
+    return n.observed===true?"Observed":n.declared===true?"Declared":"Status unknown";
+  }
+  function layerObject(n,openLayer,kindLabel){
+    if(!n)return '<div class="layer-object unknown"><span class="object-kind">Unknown</span><strong>No verified object</strong><small>This source has not identified an endpoint.</small></div>';
+    return '<button type="button" class="layer-object'+(selectedKind==="node"&&selectedId===n.id?" active":"")+'" data-node="'+esc(n.id)+'"'+(openLayer?' data-open-layer="'+esc(openLayer)+'"':"")+'><span class="object-kind">'+esc(kindLabel||n.type)+(n.stale?" · last known":"")+'</span><strong>'+esc(nodeDisplayLabel(n))+'</strong><small>'+esc(nodeSummary(n))+'</small><span class="object-more">'+(openLayer?"Open "+esc(layerById(openLayer).name)+" →":"Inspect evidence →")+'</span></button>';
+  }
+  function unknownObject(title,message){return '<div class="layer-object unknown"><span class="object-kind">Unverified</span><strong>'+esc(title)+'</strong><small>'+esc(message)+'</small><span class="object-more">No connection asserted</span></div>'}
+  function relation(id,from,to,type,payload,source,asOf){
+    var idx=nodeIndex(),a=idx[from],b=idx[to],current=a&&b&&a.observed===true&&b.observed===true&&!a.stale&&!b.stale;
+    var item={id:id,from:from,to:to,type:type,evidence:current?"observed":a&&b&&(a.stale||b.stale)?"last-known":"declared",payload:current?payload:"Snapshot parent relationship; current placement unverified",source:source,freshness:{status:current?"observed-hierarchy":a&&b&&(a.stale||b.stale)?"last-known":"unverified",as_of:asOf}};
+    relationIndex[id]=item;return item;
+  }
+  function layerFlow(e){
+    var idx=nodeIndex(),a=idx[e.from],b=idx[e.to],payload=e.payload||edgePayload(e),isRel=!!e.synthetic;
+    return '<div class="layer-flow">'+layerObject(a)+'<button type="button" class="flow-center'+(selectedKind===(isRel?"relation":"edge")&&selectedId===e.id?" active":"")+'" '+(isRel?'data-relation="'+esc(e.id)+'"':'data-edge="'+esc(e.id)+'"')+'" aria-label="Inspect '+esc(edgeName(e)+" from "+nodeLabel(e.from)+" to "+nodeLabel(e.to))+'"><strong>'+esc(edgeName(e))+'</strong><span class="flow-direction" aria-hidden="true">→</span><small>'+esc(payload)+'</small><em>'+esc(e.evidence||"unknown")+' · '+esc((e.freshness||{}).status||"status unknown")+'</em></button>'+layerObject(b)+'</div>';
+  }
+  function layerUnknown(title,message){return '<div class="layer-empty"><strong>'+esc(title)+'</strong>'+esc(message)+'</div>'}
+  function renderLayerTabs(){
+    var tabs=byId("layer-tabs");
+    if(!tabs.children.length)tabs.innerHTML=layerDefs.map(function(l,i){return '<button type="button" data-layer="'+esc(l.id)+'" aria-pressed="false"><span class="layer-number">'+String(i+1).padStart(2,"0")+'</span>'+esc(l.name)+'</button>'}).join("");
+    Array.from(tabs.children).forEach(function(button){button.setAttribute("aria-pressed",button.dataset.layer===activeLayer?"true":"false")});
+  }
+  function renderOverview(){
+    var idx=nodeIndex(),session=idx[selectedSession],host=session?idx[session.parent_id]:null,chatEdge=data.edges.find(function(e){return e.type==="chat_routes_to"&&e.to===selectedSession}),chat=chatEdge?idx[chatEdge.from]:null;
+    var hostRel=session&&host?relation("runs-on:"+session.id+":"+host.id,session.id,host.id,"runs_on","Observed tmux placement; no network payload or message traffic claimed","tmux hierarchy",session.observed_at):null;
+    if(hostRel)hostRel.synthetic=true;
+    var hostPipe=hostRel?'<div class="overview-pipe reverse"><button type="button" data-relation="'+esc(hostRel.id)+'" aria-label="Inspect runtime placement"><span class="flow-arrow" aria-hidden="true">←</span><span class="flow-name">Runs on</span><span class="flow-payload">'+esc(hostRel.evidence==="observed"?"Tmux placement · no traffic":"Last known / unverified placement")+'</span></button></div>':'<div class="overview-pipe unknown"><span class="flow-arrow">?</span><span class="flow-name">Host unknown</span><span class="flow-payload">No verified placement</span></div>';
+    var chatPipe=chatEdge?'<div class="overview-pipe reverse"><button type="button" data-edge="'+esc(chatEdge.id)+'" aria-label="Inspect configured inbound chat route"><span class="flow-arrow" aria-hidden="true">←</span><span class="flow-name">Chat → '+esc(session.label)+'</span><span class="flow-payload">Inbound chat events · delivery unobserved</span></button></div>':'<div class="overview-pipe unknown"><span class="flow-arrow">?</span><span class="flow-name">Route unknown</span><span class="flow-payload">No configured binding in this snapshot</span></div>';
+    var contactKind=chat&&(chat.source_refs||[]).includes("chatbind")?"Phone chat channel · handset unknown":"Contact channel · device unknown";
+    return '<div class="overview-grid">'+(host?layerObject(host,"runtime","Computer / server"):unknownObject("Computer / server","No host placement in this snapshot"))+hostPipe+layerObject(session,"identity","Agent session")+chatPipe+(chat?layerObject(chat,"routing",contactKind):unknownObject("Phone / chat contact","No verified contact point in this snapshot"))+'</div><div class="layer-note"><strong>Read this as a map of evidence.</strong> '+esc(session.label)+(hostRel&&hostRel.evidence==="observed"?' is observed on ':' is listed under ')+esc(host?host.label:"an unknown host")+'. '+(chatEdge?'A chat ownership route is configured to this session; message delivery is not observed.':'No chat ownership route is recorded.')+' A physical phone, its owner, and its network path are unknown in this snapshot.</div>';
+  }
+  function renderLayerContent(layer){
+    var idx=nodeIndex(),session=idx[selectedSession],host=session?idx[session.parent_id]:null,r=relevant(),edges=scopedEdges(layer),cap=["network","services","deployment"].includes(layer)?6:Infinity,shownEdges=expandedLayers[layer]?edges:edges.slice(0,cap),nodes=[],seen=new Set();
+    function add(n){if(n&&!seen.has(n.id)){seen.add(n.id);nodes.push(n)}}
+    if(layer==="overview")return renderOverview();
+    if(layer==="identity"){
+      add(session);edges.forEach(function(e){add(idx[e.from]);add(idx[e.to])});
+      var duties=session.responsibilities||session.last_known_responsibilities,old=!session.responsibilities&&!!session.last_known_responsibilities;
+      var dutyBlock=duties&&Array.isArray(duties.items)&&duties.items.length?'<div class="layer-section"><h4>'+(old?'Last-known card responsibilities':'Declared card responsibilities')+'</h4><ol class="responsibility-list'+(old?' responsibility-stale':'')+'">'+duties.items.map(function(line){return '<li>'+esc(line)+'</li>'}).join("")+'</ol><p class="responsibility-source">'+esc(duties.source||"identity card")+' · '+esc(old?'last known / source unavailable':duties.status||"declared")+' · '+esc(when(duties.as_of))+'</p></div>':layerUnknown("Card duties not inventoried","The current snapshot has no projected responsibility bullets for this session. Role and duties cannot be inferred from its process name.");
+      return '<div class="layer-section"><h4>Identities in this branch</h4><div class="layer-cards">'+nodes.map(function(n){return layerObject(n)}).join("")+'</div></div>'+dutyBlock+(edges.length?'<div class="layer-section"><h4>Binding evidence</h4><div class="layer-rows">'+edges.map(layerFlow).join("")+'</div></div>':layerUnknown("Stable agent and occupant unverified","The card may name a role, but this snapshot has no source-backed registry binding or current occupant receipt for this session."))+'<div class="layer-note">Card role: '+esc((session.identity||{}).role||"unknown")+' · card present: '+esc(tri((session.identity||{}).card_present))+' · registry agent ID: '+esc((session.registry||{}).agent_id||"unknown")+'. Card refusals and approval rules are not projected into this map.</div>';
+    }
+    if(layer==="runtime"){
+      var tree=r.tree.filter(function(n){return n.type==="window"||n.type==="pane"}),rels=[];
+      if(host&&session){var hr=relation("contains:"+host.id+":"+session.id,host.id,session.id,"contains","Observed tmux hierarchy; no message traffic claimed","tmux hierarchy",session.observed_at);hr.synthetic=true;rels.push(hr)}
+      tree.forEach(function(n){var p=idx[n.parent_id];if(!p)return;var cr=relation("contains:"+p.id+":"+n.id,p.id,n.id,"contains","Observed tmux hierarchy; no message traffic claimed","tmux hierarchy",n.observed_at);cr.synthetic=true;rels.push(cr)});
+      return '<div class="layer-section"><h4>Live containment · host → session → window → pane</h4><div class="layer-rows">'+rels.map(layerFlow).join("")+'</div></div>'+(rels.length?"":layerUnknown("Runtime unknown","No tmux containment was observed for this session."));
+    }
+    if(layer==="network")add(host);
+    if(layer==="instructions")add(session);
+    if(layer==="state"&&session)add(session);
+    shownEdges.forEach(function(e){add(idx[e.from]);add(idx[e.to])});
+    var blocks=[];
+    if(nodes.length&&["network","instructions","state"].includes(layer))blocks.push('<div class="layer-section"><h4>Known objects</h4><div class="layer-cards">'+nodes.map(function(n){return layerObject(n)}).join("")+'</div></div>');
+    if(edges.length){var heading=layer==="services"?"Registered host services · session calls unobserved":layer==="network"?"Tailnet and host routes · map access first":"Directional relationships";blocks.push('<div class="layer-section"><h4>'+heading+'</h4><div class="layer-rows">'+shownEdges.map(layerFlow).join("")+'</div>'+(edges.length>cap?'<button type="button" class="btn" data-expand-layer="'+esc(layer)+'" style="margin-top:11px">'+(expandedLayers[layer]?'Show fewer routes':'Show '+(edges.length-cap)+' more '+(layer==="network"?'host routes':'relationships'))+'</button>':"")+'</div>')}
+    if(layer==="instructions")blocks.push('<div class="layer-note">Identity card: '+esc(tri((session.identity||{}).card_present))+' · session standard: '+esc(tri((session.standard||{}).present))+'. File contents, instruction text, and memory use are outside this metadata snapshot.</div>');
+    if(layer==="network"){
+      var remoteSource=(data.sources||[]).find(function(s){return s.id==="remote_hosts"}),unchecked=(data.summary||{}).remote_hosts_unchecked;
+      var remoteNote=remoteSource?"Remote SSH collection source: "+esc(remoteSource.status||"unknown")+".":"Remote SSH collection: no remote-host source in this snapshot (not configured in this preview).";
+      if(typeof unchecked==="number")remoteNote+=" "+unchecked+" declared remote host"+(unchecked===1?"":"s")+" unchecked.";
+      blocks.push('<div class="layer-note">'+(host?'Host reachability: '+esc(host.reachability||"unknown")+'. ':'')+remoteNote+' A tailnet proxy to this map does not identify a physical phone or prove a chat delivery path.</div>');
+    }
+    if(layer==="capabilities")blocks.push('<div class="layer-note">This session’s skill inventory and MCP tool availability are unknown in this snapshot. Listed tools are card declarations; invocation is unobserved.</div>');
+    if(layer==="services")blocks.push('<div class="layer-note">The listed services are registered on this host. This layer does not claim this session called their APIs or identify a per-session MCP connection. Chat and outbox jobs, where inventoried, appear in <button class="btn" type="button" data-layer="routing">Routing</button> and <button class="btn" type="button" data-layer="deployment">Deployment</button>.</div>');
+    if(layer==="state"&&session){var re=session.root_evidence||{},rootChecked=re.observed_cwd_within_card===true||re.observed_cwd_within_standard===true;blocks.push('<div class="layer-note">Configured working root: '+esc(rootChecked?"observed pane cwd is within the declared root; path redacted":"placement unknown")+'. Registry path ownership claim: '+esc(data.edges.some(function(e){return e.type==="path_claim"&&(e.from===selectedSession||e.to===selectedSession)})?"see claim pipe above":"unknown / not approved in this snapshot")+'. This does not assert workspace ownership.</div>')}
+    if(!edges.length){var missing={routing:["No route evidence","No configured or computed route for this selected branch."],capabilities:["Capabilities not inventoried","No source-backed tools or skills are attached to this branch in the current snapshot. This does not mean none exist."],services:["Service dependencies not inventoried","No source-backed service or API relationship is attached to this branch."],network:["Network path not inventoried","No SSH or Tailscale route for this branch is in the snapshot."],state:["Data and state not inventoried","No source-backed workspace claim, queue, or lease is attached to this branch."],deployment:["Deployment not inventoried","No source-backed release, job, or deployment relationship is attached to this branch."]}[layer];if(missing)blocks.push(layerUnknown(missing[0],missing[1]))}
+    return blocks.join("");
+  }
+  function renderLayerView(){
+    renderLayerTabs();
+    var terminal=activeLayer==="terminals",view=byId("layer-view"),l=layerById(activeLayer),i=layerDefs.indexOf(l);
+    byId("terminal-actions").hidden=!terminal;byId("diagram-scroll").hidden=!terminal||!selectedSession||allMode;byId("all-tree").hidden=!terminal||!allMode;byId("mobile-map").hidden=!terminal||allMode;byId("empty").hidden=!!selectedSession;byId("stage").classList.toggle("layer-mode",!terminal);
+    byId("stage").classList.toggle("all-mode",terminal&&allMode);
+    byId("stage").querySelector(".legend").hidden=!terminal;
+    view.hidden=terminal||!selectedSession;
+    if(terminal||!selectedSession)return;
+    byId("stage-title").textContent=l.title;byId("stage-subtitle").textContent=(nodeLabel(selectedSession)||"Session")+" · layer "+(i+1)+" of "+layerDefs.length;
+    relationIndex={};
+    view.innerHTML='<div class="layer-intro"><div><span class="eyebrow">'+esc(l.name)+' · '+esc(nodeLabel(selectedSession))+'</span><h3>'+esc(l.title)+'</h3><p>'+esc(l.description)+'</p></div><span class="layer-depth">DEPTH '+String(i+1).padStart(2,"0")+' / '+String(layerDefs.length).padStart(2,"0")+'</span></div><div class="layer-body">'+renderLayerContent(activeLayer)+'<div class="layer-actions"><button class="btn" type="button" data-layer="'+esc(layerDefs[Math.max(0,i-1)].id)+'"'+(i===0?" disabled":"")+'>← Simpler</button><button class="btn" type="button" data-layer="'+esc(layerDefs[Math.min(layerDefs.length-1,i+1)].id)+'"'+(i===layerDefs.length-1?" disabled":"")+'>Deeper →</button></div></div>';
   }
   function shape(n){
     var cls=n.type==="host"?"host":n.type==="session"?"session":n.type==="pane"?"pane":n.type==="window"?"window":"resource";
@@ -360,31 +535,34 @@
   }
   function fact(label,value,cls){return '<div><dt>'+esc(label)+'</dt><dd'+(cls?' class="'+cls+'"':'')+'>'+esc(value)+'</dd></div>'}
   function renderInspector(){
-    var idx=nodeIndex(),item=selectedKind==="edge"&&data?data.edges.find(function(e){return e.id===selectedId}):idx[selectedId],facts=[],title="",desc="",icon="⌂",kind="";
-    if(!item){byId("inspect-title").textContent="Inspect the network";byId("inspect-type").textContent="Select a node or pipe";byId("inspect-desc").textContent="The chart keeps declared identity separate from the process seen in a pane.";byId("facts").innerHTML="";byId("inspector-actions").hidden=true;return}
-    byId("inspector-actions").hidden=selectedKind==="edge"||!(item.type==="session"||item.type==="pane");
-    if(selectedKind==="edge"){
+    var idx=nodeIndex(),item=selectedKind==="relation"?relationIndex[selectedId]:selectedKind==="edge"&&data?data.edges.find(function(e){return e.id===selectedId}):idx[selectedId],facts=[],title="",desc="",icon="⌂",kind="";
+    if(!item){byId("inspect-title").textContent="Inspect the network";byId("inspect-type").textContent="Select a node or pipe";byId("inspect-desc").textContent="The chart keeps declared identity separate from the process seen in a pane.";byId("facts").innerHTML="";byId("inspector-actions").hidden=true;byId("inspect-deeper").hidden=true;return}
+    byId("inspector-actions").hidden=selectedKind!=="node"||!(item.type==="session"||item.type==="pane");
+    if(selectedKind==="edge"||selectedKind==="relation"){
       kind="Named pipe · "+edgeName(item);title=item.evidence==="computed"?edgeName(item):(item.display||nodeLabel(item.from)+" → "+nodeLabel(item.to));icon="→";
-      desc=nodeLabel(item.from)+" → "+nodeLabel(item.to)+". This "+item.evidence.replace(/_/g," ")+" relationship has its own source and freshness.";
+      desc=nodeLabel(item.from)+" → "+nodeLabel(item.to)+". This "+(item.evidence||"unknown").replace(/_/g," ")+" relationship has its own source and freshness.";
       if(item.type==="planned_binding"||item.type==="verified_binding")desc+=" A registry binding does not identify the current pane occupant.";
       if(item.type==="occupies")desc+=" A launcher receipt matched the current pane and process generation at its check time; it expires and must be checked again.";
       if(item.type==="work_lease")desc+=" This covers a managed edit lease only. Direct shell edits are outside the lease protocol.";
       if(item.type==="path_claim")desc+=" This is an approved "+item.access+" ownership claim. The canonical path is redacted; a current managed lease is shown separately.";
       if(item.evidence==="computed")desc+=" Computed from the on-disk routing file and tmux at collection time. The active router configuration and message delivery are unverified.";
-      facts.push(fact("Flow",nodeLabel(item.from)+" → "+nodeLabel(item.to)),fact("Relationship",edgeName(item)),fact("Evidence",item.evidence),fact("Source",item.source||"Unknown",item.source?"":"fact-unknown"),fact("Source status",(item.freshness||{}).status||"Unknown",item.stale?"fact-stale":""),fact("As of",when((item.freshness||{}).as_of||(item.freshness||{}).source_mtime),item.stale?"fact-stale":""));
+      facts.push(fact("Direction",nodeLabel(item.from)+" → "+nodeLabel(item.to)),fact("Pipe meaning",item.payload||edgePayload(item)),fact("Relationship",edgeName(item)),fact("Evidence",item.evidence||"Unknown"),fact("Source",item.source||"Unknown",item.source?"":"fact-unknown"),fact("Source status",(item.freshness||{}).status||"Unknown",item.stale?"fact-stale":""),fact("As of",when((item.freshness||{}).as_of||(item.freshness||{}).source_mtime),item.stale?"fact-stale":""));
       if(item.evidence==="computed"&&item.display)facts.push(fact("Snapshot note",item.display));
       if(item.type==="path_claim")facts.push(fact("Access",item.access));
       if(item.stale)facts.push(fact("Notice","Last-known pipe retained while its source is unavailable","fact-stale"));
     }else{
-      kind=item.type+" node";title=item.label;icon={host:"⌂",session:"▣",window:"▤",pane:"▥",channel:"◇",tool:"⚙",skill:"✦",workspace:"▣",file:"▤"}[item.type]||"✦";
+      kind=item.type+" node";title=nodeDisplayLabel(item);icon={host:"⌂",session:"▣",window:"▤",pane:"▥",channel:"◇",tool:"⚙",skill:"✦",workspace:"▣",file:"▤"}[item.type]||"✦";
       desc=item.type==="session"?"A durable session name. Its identity card and current pane are separate facts.":item.type==="pane"?"A live terminal pane. Foreground process recognition does not establish agent identity.":item.type==="agent"?"A stable registry identity. Its planned or verified binding does not prove who occupies the current pane.":item.type==="host"?"The host at the top of this terminal branch.":"A named endpoint or container in the network.";
       facts.push(fact("Declared",tri(item.declared),item.declared===null?"fact-unknown":""));
       facts.push(fact("Observed",tri(item.observed),item.observed===null?"fact-unknown":""));
       if(item.last_known_declared!==undefined)facts.push(fact("Last-known declaration",tri(item.last_known_declared),"fact-stale"));
       if(item.last_known_observed!==undefined)facts.push(fact("Last-known observation",tri(item.last_known_observed),"fact-stale"));
       if(item.identity){facts.push(fact("Card role",item.identity.role||"Unknown",item.stale_fields&&item.stale_fields.includes("identity")?"fact-stale":""));facts.push(fact("Identity card",tri(item.identity.card_present),item.identity.card_present===null?"fact-unknown":""));if(item.identity.card_updated_date)facts.push(fact("Card updated",item.identity.card_updated_date))}
+      var duties=item.responsibilities||item.last_known_responsibilities,oldDuties=!item.responsibilities&&!!item.last_known_responsibilities;
+      if(duties&&Array.isArray(duties.items)){duties.items.forEach(function(line,i){facts.push(fact((oldDuties?"Last-known":"Declared")+" duty "+(i+1),line,oldDuties?"fact-stale":""))});facts.push(fact("Duties source",(duties.source||"identity card")+" · "+when(duties.as_of),oldDuties?"fact-stale":""))}
       if(item.registry&&(item.type==="agent"||item.type==="session")){facts.push(fact("Stable agent ID",item.registry.agent_id||"Unknown"));facts.push(fact("Registry binding",item.registry.state||"Unknown"));facts.push(fact("Registry host",item.registry.host_id||"Unknown"))}
       if(item.type==="workspace"&&item.registry&&item.registry.access)facts.push(fact("Path claim",item.registry.access+" · path redacted"),fact("Owner session",item.registry.owner_session||"Unknown"));
+      [["kind","Kind"],["group","Group"],["reach","Reach"],["transport","Transport"],["status",item.type==="service"?"Port listener evidence":"Status"]].forEach(function(pair){if(item[pair[0]])facts.push(fact(pair[1],item[pair[0]]))});
       if(item.type==="agent"&&item.registry)facts.push(fact("Current pane occupant",occupiedNow(item.id)?"Launcher-attested in this snapshot":"Unknown · no current receipt",occupiedNow(item.id)?"":"fact-unknown"));
       if(item.last_known_registry)facts.push(fact("Last-known registry binding",item.last_known_registry.agent_id+" · "+item.last_known_registry.state,"fact-stale"));
       if(item.last_known_identity)facts.push(fact("Last-known card role",item.last_known_identity.role||"Unknown","fact-stale"));
@@ -400,10 +578,14 @@
       if(item.stale)facts.push(fact("Notice","Last-known node retained while its source is unavailable","fact-stale"));
     }
     byId("inspect-icon").textContent=icon;byId("inspect-type").textContent=kind;byId("inspect-title").textContent=title;byId("inspect-desc").textContent=desc;byId("facts").innerHTML=facts.join("");
+    var depth=layerDefs.findIndex(function(l){return l.id===activeLayer}),next=layerDefs[depth+1];byId("inspect-deeper").hidden=!next;byId("inspect-deeper").textContent=next?"Open "+next.name+" →":"";
   }
-  function render(){setStatus();chooseInitial();renderRoster();renderDiagram();renderMobile();renderInspector();byId("stage").classList.toggle("all-mode",allMode);byId("all-terminals").setAttribute("aria-pressed",allMode?"true":"false");byId("all-lines").setAttribute("aria-pressed",showComputed?"true":"false");byId("all-lines").textContent=showComputed?"Hide computed routes":"Show computed routes";if(byId("creator").open)updateCreatorContext()}
-  function selectNode(id){selectedKind="node";selectedId=id;allMode=false;var idx=nodeIndex(),n=idx[id];while(n&&n.type!=="session"&&n.parent_id)n=idx[n.parent_id];if(n&&n.type==="session")selectedSession=n.id;render();if(matchMedia("(max-width:740px)").matches)byId("inspector").scrollIntoView({block:"start"})}
-  function selectEdge(id){selectedKind="edge";selectedId=id;allMode=false;render();if(matchMedia("(max-width:740px)").matches)byId("inspector").scrollIntoView({block:"start"})}
+  function render(){setStatus();chooseInitial();renderRoster();if(activeLayer==="terminals"){renderDiagram();renderMobile()}renderLayerView();renderInspector();byId("all-terminals").setAttribute("aria-pressed",allMode?"true":"false");byId("all-lines").setAttribute("aria-pressed",showComputed?"true":"false");byId("all-lines").textContent=showComputed?"Hide computed routes":"Show computed routes";if(byId("creator").open)updateCreatorContext()}
+  function openInspector(){byId("inspector").classList.add("is-open");if(matchMedia("(max-width:780px)").matches)byId("inspect-title").focus({preventScroll:true})}
+  function selectNode(id,openLayer){selectedKind="node";selectedId=id;allMode=false;var idx=nodeIndex(),n=idx[id];while(n&&n.type!=="session"&&n.parent_id)n=idx[n.parent_id];if(n&&n.type==="session")selectedSession=n.id;if(openLayer)activeLayer=openLayer;render();openInspector()}
+  function selectEdge(id){selectedKind="edge";selectedId=id;allMode=false;render();openInspector()}
+  function selectRelation(id){selectedKind="relation";selectedId=id;render();openInspector()}
+  function setLayer(id){if(!layerDefs.some(function(l){return l.id===id}))return;activeLayer=id;allMode=false;selectedKind="node";selectedId=selectedSession;byId("inspector").classList.remove("is-open");render();var tab=byId("layer-tabs").querySelector('[data-layer="'+id+'"]');if(tab){tab.scrollIntoView({inline:"nearest",block:"nearest"});tab.focus({preventScroll:true})}}
   async function refresh(){
     demo=false;var serial=++requestSerial;byId("refresh").disabled=true;
     try{var res=await fetch("/api/fleet-map",{cache:"no-store"}),next=await res.json();if(serial!==requestSerial||demo)return;
@@ -521,7 +703,7 @@
   }
   byId("creator-copy-dry").addEventListener("click",function(){copyCreatorCommand(0)});
   byId("creator-copy-apply").addEventListener("click",function(){copyCreatorCommand(1)});
-  document.addEventListener("click",function(ev){var session=ev.target.closest("[data-session]"),node=ev.target.closest("[data-node]"),edge=ev.target.closest("[data-edge]");if(session){selectNode(session.dataset.session);return}if(node){selectNode(node.dataset.node);return}if(edge){selectEdge(edge.dataset.edge)}});
+  document.addEventListener("click",function(ev){var session=ev.target.closest("[data-session]"),node=ev.target.closest("[data-node]"),edge=ev.target.closest("[data-edge]"),rel=ev.target.closest("[data-relation]"),layer=ev.target.closest("[data-layer]"),expand=ev.target.closest("[data-expand-layer]");if(session){byId("roster-panel").classList.remove("is-open");byId("roster-toggle").setAttribute("aria-expanded","false");selectNode(session.dataset.session,"overview");return}if(node){selectNode(node.dataset.node,node.dataset.openLayer);return}if(edge){selectEdge(edge.dataset.edge);return}if(rel){selectRelation(rel.dataset.relation);return}if(layer){setLayer(layer.dataset.layer);return}if(expand){expandedLayers[expand.dataset.expandLayer]=!expandedLayers[expand.dataset.expandLayer];render()}});
   document.addEventListener("keydown",function(ev){var el=ev.target.closest(".wire[data-edge],.wire[data-node]");if(el&&(ev.key==="Enter"||ev.key===" ")){ev.preventDefault();if(el.dataset.edge)selectEdge(el.dataset.edge);else selectNode(el.dataset.node)}});
   byId("search").addEventListener("input",renderRoster);
   byId("refresh").addEventListener("click",refresh);
@@ -529,6 +711,10 @@
   byId("empty-demo").addEventListener("click",synthetic);
   byId("all-terminals").addEventListener("click",function(){allMode=!allMode;render()});
   byId("all-lines").addEventListener("click",function(){showComputed=!showComputed;render()});
+  byId("roster-toggle").addEventListener("click",function(){var open=byId("roster-panel").classList.toggle("is-open");this.setAttribute("aria-expanded",open?"true":"false");this.textContent=open?"Close list":"Browse sessions"});
+  byId("inspect-close").addEventListener("click",function(){byId("inspector").classList.remove("is-open");var current=byId("layer-tabs").querySelector('[aria-pressed="true"]');if(current)current.focus({preventScroll:true})});
+  byId("inspect-deeper").addEventListener("click",function(){var at=layerDefs.findIndex(function(l){return l.id===activeLayer});if(layerDefs[at+1])setLayer(layerDefs[at+1].id)});
+  document.addEventListener("keydown",function(ev){if(ev.key==="Escape"&&byId("inspector").classList.contains("is-open")){byId("inspector").classList.remove("is-open");ev.preventDefault()}});
   function setZoom(value){zoom=Math.max(.55,Math.min(1.5,Math.round(value*20)/20));byId("diagram").style.zoom=Math.round(zoom*100)+"%";byId("zoom-level").textContent=Math.round(zoom*100)+"%"}
   byId("zoom-out").addEventListener("click",function(){setZoom(zoom-.1)});
   byId("zoom-in").addEventListener("click",function(){setZoom(zoom+.1)});
