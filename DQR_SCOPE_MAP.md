@@ -1,5 +1,8 @@
 # DQR: a scoped agent as a worked example
 
+For a text-only independence check and a separate publication-safety test,
+see [DQR test plan](DQR_TEST_PLAN.md).
+
 The fleet map uses DQR to show the difference between an agent's declared
 scope, its configured routes, and what the running system actually enforces.
 Select **DQR** in the branch index, then move through the tabs. Every named
@@ -40,6 +43,13 @@ commits and pushes `main`, then notifies the operator. The project declares a
 GitHub-to-Vercel deployment path. **There is no prepublication approval gate
 on that path**, despite the identity card's instruction to ask before
 publishing to the live site. The graph marks this as a mismatch.
+
+`dqr-media` is a DQR-specific image script invoked by the chat binding. It is
+not the separate **Media** tmux agent, and the live graph has no DQR → Media
+session edge. Plain-text DQR routing does not depend on this image path. The
+current DQR card still declares image work as a DQR responsibility; that
+declaration should be revised if image intake becomes a separately owned
+service.
 
 ## Accounts and identity
 
