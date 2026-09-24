@@ -53,6 +53,15 @@ registry currently has zero verified agent bindings. The fixture menu also
 omits many live sessions whose router descriptions are missing, and it does
 not test delivery, completion, or efficiency.
 
+A later live Trace routing prompt about the fleet map's mobile layout proposed
+`Junior`, citing Junior's recent work on that map, and explicitly made no
+dispatch. `Junior` is live with an agent pane, but has no description in the
+router's session-purpose table and no verified registry binding. That is
+relevant project context missing from this frozen fixture menu. The original
+`UI` gold label remains unchanged as the pre-run static-role test; it should
+not be used to mark Trace's contextual proposal wrong. Future labels must
+account for current work ownership evidence as well as functional specialty.
+
 ## Next trial
 
 Freeze labels for 10–20 anonymized operator-style texts before evaluating

@@ -47,7 +47,8 @@ Jev handles bounded judgments such as choosing among eligible agents.
 1. Build the candidate set from the live router's authoritative policy and
    current session readiness, with a `needs_review` option. The map's
    computed routing edges are informative snapshot evidence, not a dispatch
-   allowlist.
+   allowlist. Add recent project/worktree ownership as sourced context when
+   available; an agent's own report is a claim, not a verified binding.
 2. Send a minimal, redacted task summary and candidate descriptions to Jev.
    Ask one `choice` question. Require `zeroDataRetention` and the TypeSafe
    provider in Gateway options. Record only model, candidate IDs, chosen ID,
