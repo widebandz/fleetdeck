@@ -24,6 +24,7 @@ REMOTE_ENV = "FLEETDECK_FLEET_REMOTE"
 REMOTE_HOST_MAP_ENV = "FLEETDECK_FLEET_REMOTE_HOST_MAP"
 REMOTE_CACHE_DIR_ENV = "FLEETDECK_FLEET_REMOTE_CACHE_DIR"
 RUNTIME_ENV = "FLEETDECK_FLEET_RUNTIME"
+INFRA_ENV = "FLEETDECK_FLEET_INFRA"
 DEFAULT_COLLECTOR = "~/bin/tm-fleet-snapshot"
 MAX_STDOUT = 2 * 1024 * 1024
 MAX_STDERR = 4096
@@ -117,7 +118,7 @@ def validate_snapshot(raw):
             raise SnapshotError("duplicate node")
         ids.add(node_id)
         node_type = _safe_text(item.get("type"), limit=40)
-        if node_type not in {"host", "session", "window", "pane", "agent", "channel", "chat", "skill", "tool", "workspace", "file", "endpoint"}:
+        if node_type not in {"host", "session", "window", "pane", "agent", "channel", "chat", "skill", "tool", "workspace", "file", "endpoint", "service", "job", "data", "instruction"}:
             raise SnapshotError("unknown node type")
         refs = item.get("source_refs") or []
         if not isinstance(refs, list) or len(refs) > 20:
@@ -138,6 +139,9 @@ def validate_snapshot(raw):
             node["last_known_observed"] = _optional_bool(item["last_known_observed"])
         if "reachability" in item:
             node["reachability"] = _safe_text(item["reachability"], limit=60)
+        for field in ("kind", "group", "reach", "transport", "status"):
+            if field in item:
+                node[field] = _safe_text(item[field], limit=60)
         if not node["label"]:
             raise SnapshotError("missing label")
         identity = _project_map(item.get("identity"),
@@ -218,7 +222,9 @@ def validate_snapshot(raw):
                              "chat_routes_to", "describes_session", "bound_chat",
                              "router_addressable", "router_agent_pane_ready",
                              "planned_binding", "verified_binding", "path_claim", "occupies",
-                             "work_lease", "uses", "reads"}:
+                             "work_lease", "uses", "reads", "declares_service", "runs_service",
+                             "schedules_job", "launches", "has_instruction_file", "writes_queue",
+                             "consumes_queue", "sends_chat", "handles_bound_chat", "proxy_routes_to"}:
             raise SnapshotError("unknown edge type")
         freshness = _project_map(item.get("freshness"),
                                  text_keys=("as_of", "source_mtime", "status"))
@@ -235,6 +241,20 @@ def validate_snapshot(raw):
             "display": _safe_text(item.get("display"), limit=140),
             "freshness": freshness,
         }
+        infra_types = {"declares_service", "runs_service", "schedules_job", "launches",
+                       "has_instruction_file", "writes_queue", "consumes_queue",
+                       "sends_chat", "handles_bound_chat", "proxy_routes_to"}
+        if "layer" in item or edge_type in infra_types:
+            layer = _safe_text(item.get("layer"), limit=30)
+            if layer not in {"identity", "routing", "runtime", "capabilities", "instructions",
+                             "services", "network", "state", "deployment"}:
+                raise SnapshotError("invalid edge layer")
+            edge["layer"] = layer
+        if "payload" in item or edge_type in infra_types:
+            payload = _safe_text(item.get("payload"), limit=100)
+            if edge_type in infra_types and not payload:
+                raise SnapshotError("missing edge payload")
+            edge["payload"] = payload
         if edge_type == "path_claim":
             if item.get("access") not in ("exclusive", "shared"):
                 raise SnapshotError("invalid path claim access")
@@ -425,6 +445,16 @@ def _collect_joined_snapshot():
             except (SnapshotError, OSError, ValueError, TypeError):
                 raw = _source_unavailable(raw, "occupant_receipts", "Runtime receipt check unavailable.")
                 raw = _source_unavailable(raw, "work_leases", "Work lease check unavailable.")
+    infra_executable = os.environ.get(INFRA_ENV)
+    if infra_executable:
+        if not os.path.isabs(infra_executable):
+            raw = _source_unavailable(raw, "infra", "Infrastructure metadata unavailable.")
+        else:
+            try:
+                raw = _bounded_json_process([infra_executable, "--json"],
+                                            input_bytes=_pipe_json(raw), source="infrastructure")
+            except (SnapshotError, OSError, ValueError, TypeError):
+                raw = _source_unavailable(raw, "infra", "Infrastructure metadata unavailable.")
     return raw
 
 
