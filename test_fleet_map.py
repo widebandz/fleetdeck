@@ -89,6 +89,26 @@ class ValidationTests(unittest.TestCase):
         self.assertFalse(clean["edges"][-1]["stale"])
         self.assertEqual(clean["edges"][-1]["type"], "occupies")
 
+    def test_path_claim_projects_access_without_canonical_path(self):
+        value = snapshot()
+        claim = node("workspace:sample:sample:1", "workspace", "Approved workspace 1",
+                     refs=["registry"], observed=None,
+                     registry={"host_id": "sample", "owner_session": "Sample session",
+                               "access": "exclusive", "ordinal": 1,
+                               "canonical_path": "/tmp/private"})
+        value["nodes"].append(claim)
+        value["edges"].append({**edge("path_claim:sample", "session:sample", claim["id"],
+                                      "path_claim", "approved_registry_claim", "registry"),
+                               "access": "exclusive", "canonical_path": "/tmp/private"})
+        clean = R.validate_snapshot(value)
+        self.assertEqual(clean["nodes"][-1]["registry"]["access"], "exclusive")
+        self.assertEqual(clean["edges"][-1]["access"], "exclusive")
+        self.assertNotIn("canonical_path", json.dumps(clean))
+        bad = copy.deepcopy(value)
+        bad["edges"][-1]["access"] = "owner"
+        with self.assertRaises(R.SnapshotError):
+            R.validate_snapshot(bad)
+
     def test_collector_schema_including_file_and_process_projection(self):
         value = R.validate_snapshot(snapshot())
         self.assertEqual(value["nodes"][2]["process"]["classification"], "agent_like_process")
@@ -261,6 +281,23 @@ class CacheTests(unittest.TestCase):
         self.assertIsNone(session["observed"])
         self.assertTrue(session["last_known_observed"])
         self.assertTrue(next(e for e in value["edges"] if e["id"] == "remote:handoff")["stale"])
+
+    def test_remote_transport_outage_matches_prefixed_host_sources(self):
+        prior = snapshot()
+        prior["nodes"].append(node("host:side", "host", "Side device", refs=["remote:side:tmux"],
+                                   observed=True, reachability="reachable"))
+        prior["nodes"].append(node("session:side:work", "session", "work", "host:side",
+                                   refs=["remote:side:tmux"], observed=True))
+        current = snapshot()
+        current["nodes"].append(node("host:side", "host", "Side device", refs=["remote_transport"],
+                                     observed=None, reachability="unknown_not_checked"))
+        current["sources"].append({"id": "remote:side:transport", "status": "unavailable", "as_of": TIME})
+        cache = self.cache_for(prior, current)
+        cache.get()
+        value = cache.get()[1]
+        session = next(n for n in value["nodes"] if n["id"] == "session:side:work")
+        self.assertTrue(session["stale"])
+        self.assertIsNone(session["observed"])
 
 
 class RegistryBridgeTests(unittest.TestCase):

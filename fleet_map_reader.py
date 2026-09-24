@@ -186,6 +186,13 @@ def validate_snapshot(raw):
                 if registry.get("state") not in ("planned", "verified", "retired"):
                     raise SnapshotError("invalid registry binding state")
                 node["registry"] = registry
+        elif node_type == "workspace" and "registry" in item:
+            registry = _project_map(item.get("registry"),
+                                    text_keys=("host_id", "owner_session", "access"),
+                                    int_keys=("ordinal",))
+            if registry.get("access") not in ("exclusive", "shared"):
+                raise SnapshotError("invalid path claim access")
+            node["registry"] = registry
         nodes.append(node)
     for node in nodes:
         if node["parent_id"] is not None and node["parent_id"] not in ids:
@@ -208,7 +215,7 @@ def validate_snapshot(raw):
                              "uses_workspace", "reads_file", "executes_file",
                              "chat_routes_to", "describes_session", "bound_chat",
                              "router_addressable", "router_agent_pane_ready",
-                             "planned_binding", "verified_binding", "occupies",
+                             "planned_binding", "verified_binding", "path_claim", "occupies",
                              "work_lease", "uses", "reads"}:
             raise SnapshotError("unknown edge type")
         freshness = _project_map(item.get("freshness"),
@@ -226,10 +233,15 @@ def validate_snapshot(raw):
             "display": _safe_text(item.get("display"), limit=140),
             "freshness": freshness,
         }
+        if edge_type == "path_claim":
+            if item.get("access") not in ("exclusive", "shared"):
+                raise SnapshotError("invalid path claim access")
+            edge["access"] = item["access"]
         if "stale" in item:
             edge["stale"] = _optional_bool(item["stale"])
         if edge["evidence"] not in {"declared", "observed", "computed",
-                                    "approved_registry_binding", "launcher_attested"}:
+                                    "approved_registry_binding", "approved_registry_claim",
+                                    "launcher_attested"}:
             raise SnapshotError("invalid evidence")
         edges.append(edge)
 
@@ -468,7 +480,10 @@ def _from_unavailable(ref, unavailable):
                "routing_descriptions": "routing_conf", "chat_bindings": "chatbind",
                "remote_hosts": "remote:"}
     return (any(ref == source or ref.startswith(source + ":") or ref.startswith(source + "#")
-                or ref.startswith(aliases.get(source, "\x00")) for source in unavailable)
+                or ref.startswith(aliases.get(source, "\x00"))
+                or (source.startswith("remote:") and source.endswith(":transport")
+                    and ref.startswith(source.rsplit(":", 1)[0] + ":"))
+                for source in unavailable)
             or (("tmux" in unavailable or "routing_descriptions" in unavailable)
                 and ref.startswith("imsg-router#")))
 
@@ -485,8 +500,12 @@ def _retain_unavailable_sources(current, previous, unavailable):
             continue
         if old["type"] == "workspace" and "work_leases" in old["source_refs"]:
             continue
-        remote_lost = ("remote_hosts" in unavailable
-                       and any(ref.startswith("remote:") for ref in old["source_refs"]))
+        remote_lost = any(ref.startswith("remote:") and
+                          ("remote_hosts" in unavailable or any(
+                              source.startswith("remote:") and source.endswith(":transport")
+                              and ref.startswith(source.rsplit(":", 1)[0] + ":")
+                              for source in unavailable))
+                          for ref in old["source_refs"])
         if node_id not in current_nodes:
             kept = copy.deepcopy(old)
             kept["stale"] = True

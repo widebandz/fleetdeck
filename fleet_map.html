@@ -141,6 +141,7 @@
   .map-node.resource.agent{border-color:#88b978;background:#1d342d}.map-node.resource.agent .icon{color:#b5e87b;background:#29443b}
   .wire.semantic[data-type="planned_binding"] .line{stroke:#b5e87b;stroke-dasharray:7 5}.wire.semantic[data-type="verified_binding"] .line{stroke:#b5e87b;stroke-width:4}
   .wire.semantic[data-type="occupies"] .line{stroke:#4cdbf0;stroke-width:4}.wire.semantic[data-type="work_lease"] .line{stroke:#f7c872;stroke-dasharray:9 4}
+  .wire.semantic[data-type="path_claim"] .line{stroke:#f7c872;stroke-dasharray:3 5}.map-node.resource.path-claim{border-color:#ad8651;background:#312a25}.map-node.resource.path-claim .icon{color:#f7c872;background:#443522}
   @media(max-width:620px){.creator{width:100vw;max-height:100dvh;height:100dvh;border:0;border-radius:0}.creator-head,.creator-body{padding-left:17px;padding-right:17px}.creator-context{grid-template-columns:1fr 1fr}.creator-diff div{grid-template-columns:1fr;gap:2px}}
 </style>
 </head>
@@ -226,8 +227,8 @@
   var age=function(value){if(!value)return "unknown";var d=Date.parse(value);if(!Number.isFinite(d))return value;var s=Math.max(0,Math.floor((Date.now()-d)/1000));return s<60?"just now":s<3600?Math.floor(s/60)+" min ago":s<86400?Math.floor(s/3600)+" h ago":Math.floor(s/86400)+" d ago"};
   var when=function(value){if(!value)return "Unknown";var d=new Date(value);return Number.isNaN(d.getTime())?value:d.toLocaleString()};
   var tri=function(v){return v===true?"✓ Yes":v===false?"○ No":"? Unknown"};
-  var edgeName=function(e){return ({hands_off_to:"Handoff",handoff:"Handoff",planned_binding:"Planned agent binding",verified_binding:"Verified registry binding",occupies:"Attested pane occupant",work_lease:"Managed work lease",chat_routes_to:"Chat route",describes_session:"Description",router_addressable:"Addressable in snapshot",router_agent_pane_ready:"Pane ready in snapshot",executes_file:"Executes file",uses_tool:"Uses tool"})[e.type]||e.type.replace(/_/g," ")};
-  var edgeOrder=function(e){return ({hands_off_to:0,handoff:0,occupies:1,planned_binding:2,verified_binding:2,work_lease:3,chat_routes_to:4,uses_tool:5,executes_file:6,describes_session:7,router_addressable:8,router_agent_pane_ready:9})[e.type]??7};
+  var edgeName=function(e){return ({hands_off_to:"Handoff",handoff:"Handoff",planned_binding:"Planned agent binding",verified_binding:"Verified registry binding",path_claim:"Approved path claim",occupies:"Attested pane occupant",work_lease:"Managed work lease",chat_routes_to:"Chat route",describes_session:"Description",router_addressable:"Addressable in snapshot",router_agent_pane_ready:"Pane ready in snapshot",executes_file:"Executes file",uses_tool:"Uses tool"})[e.type]||e.type.replace(/_/g," ")};
+  var edgeOrder=function(e){return ({hands_off_to:0,handoff:0,occupies:1,planned_binding:2,verified_binding:2,path_claim:3,work_lease:3,chat_routes_to:4,uses_tool:5,executes_file:6,describes_session:7,router_addressable:8,router_agent_pane_ready:9})[e.type]??7};
   var occupiedNow=function(agentId){return !!(data&&data.edges.some(function(e){return e.type==="occupies"&&e.from===agentId&&!e.stale}))};
   function setStatus(){
     var s=data?data.status:"source_unavailable",labels={fresh:"● Live snapshot",partial:"◇ Partial snapshot",stale:"◷ Stale snapshot",demo:"✦ Synthetic tour",source_unavailable:"◇ Source unavailable"};
@@ -285,9 +286,10 @@
     if(n.type==="session")cls+=" "+((n.identity||{}).role==="assigned"?"assigned":(n.identity||{}).role==="unassigned"?"unassigned":"uncertain")+((n.registry||{}).state==="planned"?" planned":"");
     if(n.type==="chat"||n.type==="channel")cls+=" chat";
     if(n.type==="agent")cls+=" agent";
+    if(n.type==="workspace"&&(n.registry||{}).access)cls+=" path-claim";
     if(n.stale)cls+=" stale";else if(n.stale_fields&&n.stale_fields.length)cls+=" partial-source";
     var icon={host:"⌂",session:"▣",window:"▤",pane:"▥",workspace:"▣",tool:"⚙",skill:"✦",file:"▤",channel:"◇",chat:"◇",agent:"☺"}[n.type]||"✦";
-    var sub=n.type==="session"?((n.registry||{}).state==="planned"?"Planned agent "+n.registry.agent_id:(n.identity||{}).role==="assigned"?"Assigned concern":(n.identity||{}).role==="unassigned"?"Unassigned concern":"Concern unknown"):n.type==="pane"?((n.process||{}).display||"Process unknown"):n.type==="agent"?(occupiedNow(n.id)?"Attested current occupant":(n.registry||{}).state==="planned"?"Planned · occupant unverified":(n.registry||{}).state==="verified"?"Registry verified · occupant unverified":"Registry identity"):(n.observed===null?"Observation unknown":n.observed?"Observed":"Declared");
+    var sub=n.type==="session"?((n.registry||{}).state==="planned"?"Planned agent "+n.registry.agent_id:(n.identity||{}).role==="assigned"?"Assigned concern":(n.identity||{}).role==="unassigned"?"Unassigned concern":"Concern unknown"):n.type==="pane"?((n.process||{}).display||"Process unknown"):n.type==="agent"?(occupiedNow(n.id)?"Attested current occupant":(n.registry||{}).state==="planned"?"Planned · occupant unverified":(n.registry||{}).state==="verified"?"Registry verified · occupant unverified":"Registry identity"):n.type==="workspace"&&(n.registry||{}).access?"Approved "+n.registry.access+" claim · path redacted":(n.observed===null?"Observation unknown":n.observed?"Observed":"Declared");
     return '<button type="button" class="map-node '+cls+(selectedKind==="node"&&selectedId===n.id?" active":"")+'" data-node="'+esc(n.id)+'" style="left:'+n.x+'px;top:'+n.y+'px;width:'+n.w+'px" aria-label="Inspect '+esc(n.type+" "+n.label+(n.stale?" last known":n.stale_fields&&n.stale_fields.length?" partial source":""))+'"><span class="icon" aria-hidden="true">'+icon+'</span><span><small>'+esc(n.type)+(n.stale?" · LAST KNOWN":n.stale_fields&&n.stale_fields.length?" · PARTIAL":"")+'</small><strong>'+esc(n.label)+'</strong><em>'+esc(sub)+'</em></span></button>';
   }
   function centerX(n){return n.x+n.w/2} function centerY(n){return n.y+34}
@@ -329,7 +331,7 @@
     var lines=[],labels=[];
     nodes.forEach(function(n){if(!n.parent_id||!placed[n.parent_id])return;var p=pathBetween(placed[n.parent_id],n,false);lines.push('<g class="wire contains" data-node="'+esc(n.id)+'" role="button" tabindex="0" aria-label="Inspect containment to '+esc(n.label)+'"><path class="line" d="'+p.d+'"></path><path class="hit" d="'+p.d+'"></path></g>')});
     drawEdges.forEach(function(e){var a=placed[e.from],b=placed[e.to];if(!a||!b)return;var p=pathBetween(a,b,true,e),active=selectedKind==="edge"&&selectedId===e.id,dim=selectedKind==="edge"&&!active;
-      var arrow=e.evidence==="computed"?"computed":e.type==="occupies"?"occupies":e.type==="work_lease"?"lease":e.type==="planned_binding"||e.type==="verified_binding"?"binding":e.type==="chat_routes_to"?"chat":e.type==="uses_tool"||e.type==="executes_file"?"tool":e.type==="hands_off_to"||e.type==="handoff"?"handoff":"declared";
+      var arrow=e.evidence==="computed"?"computed":e.type==="occupies"?"occupies":e.type==="work_lease"||e.type==="path_claim"?"lease":e.type==="planned_binding"||e.type==="verified_binding"?"binding":e.type==="chat_routes_to"?"chat":e.type==="uses_tool"||e.type==="executes_file"?"tool":e.type==="hands_off_to"||e.type==="handoff"?"handoff":"declared";
       lines.push('<g class="wire semantic '+esc(e.evidence)+(e.stale?" stale":"")+(active?" active":"")+(dim?" dim":"")+'" data-type="'+esc(e.type)+'" data-edge="'+esc(e.id)+'" role="button" tabindex="0" aria-label="Inspect '+esc(edgeName(e)+" "+(e.display||"connection")+(e.stale?" last known":""))+'"><path class="line" d="'+p.d+'" marker-end="url(#arrow-'+arrow+')"></path><path class="hit" d="'+p.d+'"></path></g>');
       var labelY=p.y+(e.type==="router_addressable"?-45:e.type==="router_agent_pane_ready"?45:-27);
       labels.push('<button type="button" class="edge-tag '+esc(e.evidence)+(e.stale?" stale":"")+(active?" active":"")+(dim?" dim":"")+'" data-edge="'+esc(e.id)+'" style="left:'+p.x+'px;top:'+labelY+'px" aria-label="Inspect '+esc(edgeName(e)+" "+(e.display||"connection")+(e.stale?" last known":""))+'">→ '+esc(edgeName(e))+(e.stale?" · last known":"")+'</button>');
@@ -366,9 +368,11 @@
       if(item.type==="planned_binding"||item.type==="verified_binding")desc+=" A registry binding does not identify the current pane occupant.";
       if(item.type==="occupies")desc+=" A launcher receipt matched the current pane and process generation at its check time; it expires and must be checked again.";
       if(item.type==="work_lease")desc+=" This covers a managed edit lease only. Direct shell edits are outside the lease protocol.";
+      if(item.type==="path_claim")desc+=" This is an approved "+item.access+" ownership claim. The canonical path is redacted; a current managed lease is shown separately.";
       if(item.evidence==="computed")desc+=" Computed from the on-disk routing file and tmux at collection time. The active router configuration and message delivery are unverified.";
       facts.push(fact("Flow",nodeLabel(item.from)+" → "+nodeLabel(item.to)),fact("Relationship",edgeName(item)),fact("Evidence",item.evidence),fact("Source",item.source||"Unknown",item.source?"":"fact-unknown"),fact("Source status",(item.freshness||{}).status||"Unknown",item.stale?"fact-stale":""),fact("As of",when((item.freshness||{}).as_of||(item.freshness||{}).source_mtime),item.stale?"fact-stale":""));
       if(item.evidence==="computed"&&item.display)facts.push(fact("Snapshot note",item.display));
+      if(item.type==="path_claim")facts.push(fact("Access",item.access));
       if(item.stale)facts.push(fact("Notice","Last-known pipe retained while its source is unavailable","fact-stale"));
     }else{
       kind=item.type+" node";title=item.label;icon={host:"⌂",session:"▣",window:"▤",pane:"▥",channel:"◇",tool:"⚙",skill:"✦",workspace:"▣",file:"▤"}[item.type]||"✦";
@@ -378,7 +382,8 @@
       if(item.last_known_declared!==undefined)facts.push(fact("Last-known declaration",tri(item.last_known_declared),"fact-stale"));
       if(item.last_known_observed!==undefined)facts.push(fact("Last-known observation",tri(item.last_known_observed),"fact-stale"));
       if(item.identity){facts.push(fact("Card role",item.identity.role||"Unknown",item.stale_fields&&item.stale_fields.includes("identity")?"fact-stale":""));facts.push(fact("Identity card",tri(item.identity.card_present),item.identity.card_present===null?"fact-unknown":""));if(item.identity.card_updated_date)facts.push(fact("Card updated",item.identity.card_updated_date))}
-      if(item.registry){facts.push(fact("Stable agent ID",item.registry.agent_id||"Unknown"));facts.push(fact("Registry binding",item.registry.state||"Unknown"));facts.push(fact("Registry host",item.registry.host_id||"Unknown"))}
+      if(item.registry&&(item.type==="agent"||item.type==="session")){facts.push(fact("Stable agent ID",item.registry.agent_id||"Unknown"));facts.push(fact("Registry binding",item.registry.state||"Unknown"));facts.push(fact("Registry host",item.registry.host_id||"Unknown"))}
+      if(item.type==="workspace"&&item.registry&&item.registry.access)facts.push(fact("Path claim",item.registry.access+" · path redacted"),fact("Owner session",item.registry.owner_session||"Unknown"));
       if(item.type==="agent"&&item.registry)facts.push(fact("Current pane occupant",occupiedNow(item.id)?"Launcher-attested in this snapshot":"Unknown · no current receipt",occupiedNow(item.id)?"":"fact-unknown"));
       if(item.last_known_registry)facts.push(fact("Last-known registry binding",item.last_known_registry.agent_id+" · "+item.last_known_registry.state,"fact-stale"));
       if(item.last_known_identity)facts.push(fact("Last-known card role",item.last_known_identity.role||"Unknown","fact-stale"));
