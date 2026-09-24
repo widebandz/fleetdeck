@@ -140,6 +140,7 @@
   .map-node.session.planned{box-shadow:inset 0 0 0 1px #b5e87b,0 8px 24px #0003}.roster-item.planned .name::after{content:" · planned";color:#b5e87b;font-size:10px;font-weight:700}
   .map-node.resource.agent{border-color:#88b978;background:#1d342d}.map-node.resource.agent .icon{color:#b5e87b;background:#29443b}
   .wire.semantic[data-type="planned_binding"] .line{stroke:#b5e87b;stroke-dasharray:7 5}.wire.semantic[data-type="verified_binding"] .line{stroke:#b5e87b;stroke-width:4}
+  .wire.semantic[data-type="occupies"] .line{stroke:#4cdbf0;stroke-width:4}.wire.semantic[data-type="work_lease"] .line{stroke:#f7c872;stroke-dasharray:9 4}
   @media(max-width:620px){.creator{width:100vw;max-height:100dvh;height:100dvh;border:0;border-radius:0}.creator-head,.creator-body{padding-left:17px;padding-right:17px}.creator-context{grid-template-columns:1fr 1fr}.creator-diff div{grid-template-columns:1fr;gap:2px}}
 </style>
 </head>
@@ -174,9 +175,9 @@
     <div class="creator-field"><label for="creator-role">Card action</label><select id="creator-role"><option value="preserve">Preserve existing card exactly</option><option value="assigned">Author assigned role</option><option value="unassigned">Author unassigned role</option></select><small>The card is the authority for role and boundaries. Preserving it never rewrites its prose.</small></div>
     <div id="creator-card-fields">
       <div class="creator-field"><label for="creator-owner">Owner</label><input id="creator-owner" type="text" maxlength="120" autocomplete="off" placeholder="Operator or responsible team"><small>Required for an assigned role; do not use UNVERIFIED.</small></div>
-      <div class="creator-field"><label for="creator-concern">Concern / mission</label><input id="creator-concern" type="text" maxlength="160" autocomplete="off" placeholder="What this agent is responsible for"></div>
-      <div class="creator-field"><label for="creator-owns">Owns · one responsibility per line</label><textarea id="creator-owns" maxlength="2400" placeholder="Review incoming work\nMaintain the runbook"></textarea></div>
-      <div class="creator-field"><label for="creator-refuses">Refuses · one boundary per line</label><textarea id="creator-refuses" maxlength="2400" placeholder="No external send without approval"></textarea></div>
+      <div class="creator-field" id="creator-assigned-concern"><label for="creator-concern">Concern / mission</label><input id="creator-concern" type="text" maxlength="160" autocomplete="off" placeholder="What this agent is responsible for"></div>
+      <div class="creator-field" id="creator-assigned-owns"><label for="creator-owns">Owns · one responsibility per line</label><textarea id="creator-owns" maxlength="2400" placeholder="Review incoming work\nMaintain the runbook"></textarea></div>
+      <div class="creator-field" id="creator-assigned-refuses"><label for="creator-refuses">Refuses · one boundary per line</label><textarea id="creator-refuses" maxlength="2400" placeholder="No external send without approval"></textarea></div>
       <div class="creator-field"><label for="creator-approval">Approval rules · one per line</label><textarea id="creator-approval" maxlength="2400" placeholder="Ask before publishing"></textarea></div>
       <div class="creator-field"><label for="creator-root">Workspace root</label><input id="creator-root" type="text" maxlength="400" autocomplete="off" placeholder="/absolute/path/to/workspace"><small id="creator-root-help">Required for a live-only session without a card or standard declaration. No path is sent to Fleetdeck.</small></div>
     </div>
@@ -225,8 +226,9 @@
   var age=function(value){if(!value)return "unknown";var d=Date.parse(value);if(!Number.isFinite(d))return value;var s=Math.max(0,Math.floor((Date.now()-d)/1000));return s<60?"just now":s<3600?Math.floor(s/60)+" min ago":s<86400?Math.floor(s/3600)+" h ago":Math.floor(s/86400)+" d ago"};
   var when=function(value){if(!value)return "Unknown";var d=new Date(value);return Number.isNaN(d.getTime())?value:d.toLocaleString()};
   var tri=function(v){return v===true?"✓ Yes":v===false?"○ No":"? Unknown"};
-  var edgeName=function(e){return ({hands_off_to:"Handoff",handoff:"Handoff",planned_binding:"Planned agent binding",verified_binding:"Verified registry binding",chat_routes_to:"Chat route",describes_session:"Description",router_addressable:"Addressable in snapshot",router_agent_pane_ready:"Pane ready in snapshot",executes_file:"Executes file",uses_tool:"Uses tool"})[e.type]||e.type.replace(/_/g," ")};
-  var edgeOrder=function(e){return ({hands_off_to:0,handoff:0,planned_binding:1,verified_binding:1,chat_routes_to:2,uses_tool:3,executes_file:4,describes_session:5,router_addressable:8,router_agent_pane_ready:9})[e.type]??6};
+  var edgeName=function(e){return ({hands_off_to:"Handoff",handoff:"Handoff",planned_binding:"Planned agent binding",verified_binding:"Verified registry binding",occupies:"Attested pane occupant",work_lease:"Managed work lease",chat_routes_to:"Chat route",describes_session:"Description",router_addressable:"Addressable in snapshot",router_agent_pane_ready:"Pane ready in snapshot",executes_file:"Executes file",uses_tool:"Uses tool"})[e.type]||e.type.replace(/_/g," ")};
+  var edgeOrder=function(e){return ({hands_off_to:0,handoff:0,occupies:1,planned_binding:2,verified_binding:2,work_lease:3,chat_routes_to:4,uses_tool:5,executes_file:6,describes_session:7,router_addressable:8,router_agent_pane_ready:9})[e.type]??7};
+  var occupiedNow=function(agentId){return !!(data&&data.edges.some(function(e){return e.type==="occupies"&&e.from===agentId&&!e.stale}))};
   function setStatus(){
     var s=data?data.status:"source_unavailable",labels={fresh:"● Live snapshot",partial:"◇ Partial snapshot",stale:"◷ Stale snapshot",demo:"✦ Synthetic tour",source_unavailable:"◇ Source unavailable"};
     byId("status").dataset.state=s;byId("status").textContent=labels[s]||labels.source_unavailable;
@@ -271,9 +273,11 @@
     var own=new Set([selectedSession]),queue=[selectedSession];
     while(queue.length){var id=queue.shift();childrenOf(id).forEach(function(n){if(!own.has(n.id)){own.add(n.id);queue.push(n.id)}})}
     var tree=data.nodes.filter(function(n){return own.has(n.id)});
-    var all=data.edges.filter(function(e){return own.has(e.from)||own.has(e.to)});
+    var direct=data.edges.filter(function(e){return own.has(e.from)||own.has(e.to)}),idx=nodeIndex();
+    var boundAgents=new Set();direct.forEach(function(e){if(idx[e.from]&&idx[e.from].type==="agent")boundAgents.add(e.from);if(idx[e.to]&&idx[e.to].type==="agent")boundAgents.add(e.to)});
+    var all=data.edges.filter(function(e){return own.has(e.from)||own.has(e.to)||boundAgents.has(e.from)||boundAgents.has(e.to)});
     var relatedIds=new Set();all.forEach(function(e){if(!own.has(e.from))relatedIds.add(e.from);if(!own.has(e.to))relatedIds.add(e.to)});
-    var idx=nodeIndex(),related=Array.from(relatedIds).map(function(id){return idx[id]}).filter(Boolean);
+    var related=Array.from(relatedIds).map(function(id){return idx[id]}).filter(Boolean);
     return {tree:tree,edges:all,related:related};
   }
   function shape(n){
@@ -283,7 +287,7 @@
     if(n.type==="agent")cls+=" agent";
     if(n.stale)cls+=" stale";else if(n.stale_fields&&n.stale_fields.length)cls+=" partial-source";
     var icon={host:"⌂",session:"▣",window:"▤",pane:"▥",workspace:"▣",tool:"⚙",skill:"✦",file:"▤",channel:"◇",chat:"◇",agent:"☺"}[n.type]||"✦";
-    var sub=n.type==="session"?((n.registry||{}).state==="planned"?"Planned agent "+n.registry.agent_id:(n.identity||{}).role==="assigned"?"Assigned concern":(n.identity||{}).role==="unassigned"?"Unassigned concern":"Concern unknown"):n.type==="pane"?((n.process||{}).display||"Process unknown"):n.type==="agent"?((n.registry||{}).state==="planned"?"Planned · occupant unverified":(n.registry||{}).state==="verified"?"Registry verified · occupant unverified":"Registry identity"):(n.observed===null?"Observation unknown":n.observed?"Observed":"Declared");
+    var sub=n.type==="session"?((n.registry||{}).state==="planned"?"Planned agent "+n.registry.agent_id:(n.identity||{}).role==="assigned"?"Assigned concern":(n.identity||{}).role==="unassigned"?"Unassigned concern":"Concern unknown"):n.type==="pane"?((n.process||{}).display||"Process unknown"):n.type==="agent"?(occupiedNow(n.id)?"Attested current occupant":(n.registry||{}).state==="planned"?"Planned · occupant unverified":(n.registry||{}).state==="verified"?"Registry verified · occupant unverified":"Registry identity"):(n.observed===null?"Observation unknown":n.observed?"Observed":"Declared");
     return '<button type="button" class="map-node '+cls+(selectedKind==="node"&&selectedId===n.id?" active":"")+'" data-node="'+esc(n.id)+'" style="left:'+n.x+'px;top:'+n.y+'px;width:'+n.w+'px" aria-label="Inspect '+esc(n.type+" "+n.label+(n.stale?" last known":n.stale_fields&&n.stale_fields.length?" partial source":""))+'"><span class="icon" aria-hidden="true">'+icon+'</span><span><small>'+esc(n.type)+(n.stale?" · LAST KNOWN":n.stale_fields&&n.stale_fields.length?" · PARTIAL":"")+'</small><strong>'+esc(n.label)+'</strong><em>'+esc(sub)+'</em></span></button>';
   }
   function centerX(n){return n.x+n.w/2} function centerY(n){return n.y+34}
@@ -321,12 +325,12 @@
     var lines=[],labels=[];
     nodes.forEach(function(n){if(!n.parent_id||!placed[n.parent_id])return;var p=pathBetween(placed[n.parent_id],n,false);lines.push('<g class="wire contains" data-node="'+esc(n.id)+'" role="button" tabindex="0" aria-label="Inspect containment to '+esc(n.label)+'"><path class="line" d="'+p.d+'"></path><path class="hit" d="'+p.d+'"></path></g>')});
     drawEdges.forEach(function(e){var a=placed[e.from],b=placed[e.to];if(!a||!b)return;var p=pathBetween(a,b,true,e),active=selectedKind==="edge"&&selectedId===e.id,dim=selectedKind==="edge"&&!active;
-      var arrow=e.evidence==="computed"?"computed":e.type==="planned_binding"||e.type==="verified_binding"?"binding":e.type==="chat_routes_to"?"chat":e.type==="uses_tool"||e.type==="executes_file"?"tool":e.type==="hands_off_to"||e.type==="handoff"?"handoff":"declared";
+      var arrow=e.evidence==="computed"?"computed":e.type==="occupies"?"occupies":e.type==="work_lease"?"lease":e.type==="planned_binding"||e.type==="verified_binding"?"binding":e.type==="chat_routes_to"?"chat":e.type==="uses_tool"||e.type==="executes_file"?"tool":e.type==="hands_off_to"||e.type==="handoff"?"handoff":"declared";
       lines.push('<g class="wire semantic '+esc(e.evidence)+(e.stale?" stale":"")+(active?" active":"")+(dim?" dim":"")+'" data-type="'+esc(e.type)+'" data-edge="'+esc(e.id)+'" role="button" tabindex="0" aria-label="Inspect '+esc(edgeName(e)+" "+(e.display||"connection")+(e.stale?" last known":""))+'"><path class="line" d="'+p.d+'" marker-end="url(#arrow-'+arrow+')"></path><path class="hit" d="'+p.d+'"></path></g>');
       var labelY=p.y+(e.type==="router_addressable"?-45:e.type==="router_agent_pane_ready"?45:-27);
       labels.push('<button type="button" class="edge-tag '+esc(e.evidence)+(e.stale?" stale":"")+(active?" active":"")+(dim?" dim":"")+'" data-edge="'+esc(e.id)+'" style="left:'+p.x+'px;top:'+labelY+'px" aria-label="Inspect '+esc(edgeName(e)+" "+(e.display||"connection")+(e.stale?" last known":""))+'">→ '+esc(edgeName(e))+(e.stale?" · last known":"")+'</button>');
     });
-    wires.innerHTML='<defs>'+[['handoff','#b5e87b'],['binding','#b5e87b'],['chat','#fc80dc'],['tool','#bda4ff'],['computed','#82aefe'],['declared','#ab8bbb']].map(function(v){return '<marker id="arrow-'+v[0]+'" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0 L9 4.5 L0 9 Z" fill="'+v[1]+'"></path></marker>'}).join('')+'</defs>'+lines.join("");
+    wires.innerHTML='<defs>'+[['handoff','#b5e87b'],['binding','#b5e87b'],['occupies','#4cdbf0'],['lease','#f7c872'],['chat','#fc80dc'],['tool','#bda4ff'],['computed','#82aefe'],['declared','#ab8bbb']].map(function(v){return '<marker id="arrow-'+v[0]+'" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0 L9 4.5 L0 9 Z" fill="'+v[1]+'"></path></marker>'}).join('')+'</defs>'+lines.join("");
     layer.innerHTML=nodes.map(shape).join("");tags.innerHTML=labels.join("");
     byId("stage-title").textContent=picked.label+" · terminal branch";
     byId("stage-subtitle").textContent=windows.length+" window"+(windows.length===1?"":"s")+" · "+panes.length+" pane"+(panes.length===1?"":"s")+" · "+r.edges.length+" named connection"+(r.edges.length===1?"":"s")+(relatedIds.size>9?" · "+(relatedIds.size-9)+" more endpoints in the list":"")+(showComputed?"":" · computed routes in list");
@@ -356,6 +360,8 @@
       kind="Named pipe · "+edgeName(item);title=item.evidence==="computed"?edgeName(item):(item.display||nodeLabel(item.from)+" → "+nodeLabel(item.to));icon="→";
       desc=nodeLabel(item.from)+" → "+nodeLabel(item.to)+". This "+item.evidence.replace(/_/g," ")+" relationship has its own source and freshness.";
       if(item.type==="planned_binding"||item.type==="verified_binding")desc+=" A registry binding does not identify the current pane occupant.";
+      if(item.type==="occupies")desc+=" A launcher receipt matched the current pane and process generation at its check time; it expires and must be checked again.";
+      if(item.type==="work_lease")desc+=" This covers a managed edit lease only. Direct shell edits are outside the lease protocol.";
       if(item.evidence==="computed")desc+=" Computed from the on-disk routing file and tmux at collection time. The active router configuration and message delivery are unverified.";
       facts.push(fact("Flow",nodeLabel(item.from)+" → "+nodeLabel(item.to)),fact("Relationship",edgeName(item)),fact("Evidence",item.evidence),fact("Source",item.source||"Unknown",item.source?"":"fact-unknown"),fact("Source status",(item.freshness||{}).status||"Unknown",item.stale?"fact-stale":""),fact("As of",when((item.freshness||{}).as_of||(item.freshness||{}).source_mtime),item.stale?"fact-stale":""));
       if(item.evidence==="computed"&&item.display)facts.push(fact("Snapshot note",item.display));
@@ -369,12 +375,14 @@
       if(item.last_known_observed!==undefined)facts.push(fact("Last-known observation",tri(item.last_known_observed),"fact-stale"));
       if(item.identity){facts.push(fact("Card role",item.identity.role||"Unknown",item.stale_fields&&item.stale_fields.includes("identity")?"fact-stale":""));facts.push(fact("Identity card",tri(item.identity.card_present),item.identity.card_present===null?"fact-unknown":""));if(item.identity.card_updated_date)facts.push(fact("Card updated",item.identity.card_updated_date))}
       if(item.registry){facts.push(fact("Stable agent ID",item.registry.agent_id||"Unknown"));facts.push(fact("Registry binding",item.registry.state||"Unknown"));facts.push(fact("Registry host",item.registry.host_id||"Unknown"))}
+      if(item.type==="agent"&&item.registry)facts.push(fact("Current pane occupant",occupiedNow(item.id)?"Launcher-attested in this snapshot":"Unknown · no current receipt",occupiedNow(item.id)?"":"fact-unknown"));
       if(item.last_known_registry)facts.push(fact("Last-known registry binding",item.last_known_registry.agent_id+" · "+item.last_known_registry.state,"fact-stale"));
       if(item.last_known_identity)facts.push(fact("Last-known card role",item.last_known_identity.role||"Unknown","fact-stale"));
       if(item.state&&item.state.status)facts.push(fact("Declared handoff state",item.state.status+(item.state.updated_date?" · "+item.state.updated_date:""),item.stale_fields&&item.stale_fields.includes("state")?"fact-stale":""));
       if(item.last_known_state)facts.push(fact("Last-known handoff state",item.last_known_state.status||"Unknown","fact-stale"));
       if(item.process){facts.push(fact("Observed process",item.process.display||item.process.classification||"Unknown"));facts.push(fact("Classification basis",item.process.basis||"Foreground command"))}
       if(item.reachability)facts.push(fact("Reachability",item.reachability.replace(/_/g," ")));
+      if(item.last_known_reachability)facts.push(fact("Last-known reachability",item.last_known_reachability.replace(/_/g," "),"fact-stale"));
       if(item.standard){facts.push(fact("In session standard",tri(item.standard.present),item.standard.present===null?"fact-unknown":""));if(item.standard.source_mtime)facts.push(fact("Standard checked",when(item.standard.source_mtime)))}
       if(item.root_evidence){var re=item.root_evidence,match=re.card_vs_standard_match!==undefined?re.card_vs_standard_match:re.card_vs_standard_agree;if(match!==undefined)facts.push(fact("Card vs standard root",match===null?"Unknown":match?"Agree":"Different",match===false?"fact-stale":""));if(re.observed_cwd_within_card!==undefined)facts.push(fact("Pane within card root",tri(re.observed_cwd_within_card),re.observed_cwd_within_card===false?"fact-stale":""));if(re.observed_cwd_within_standard!==undefined)facts.push(fact("Pane within standard root",tri(re.observed_cwd_within_standard),re.observed_cwd_within_standard===false?"fact-stale":""));if(re.as_of)facts.push(fact("Root check time",when(re.as_of)));if(re.source_refs)facts.push(fact("Root check sources",re.source_refs.join(" · ")))}
       facts.push(fact("Sources",(item.source_refs||[]).join(" · ")||"Unknown"));
@@ -434,10 +442,15 @@
     ["owner","concern","owns","refuses","approval","root"].forEach(function(k){byId("creator-"+k).value=""});
     var c=creatorContext(),card=(c.session||{}).identity||{};
     byId("creator-role").value=card.card_present===true&&card.role==="assigned"?"preserve":"assigned";
-    byId("creator-card-fields").hidden=byId("creator-role").value==="preserve";
+    updateCreatorFields();
     byId("creator").showModal();updateCreatorContext();byId("creator-agent-id").focus();
   }
   function closeCreator(){byId("creator").close();if(creatorReturnFocus)creatorReturnFocus.focus()}
+  function updateCreatorFields(){
+    var role=byId("creator-role").value;
+    byId("creator-card-fields").hidden=role==="preserve";
+    ["concern","owns","refuses"].forEach(function(k){byId("creator-assigned-"+k).hidden=role!=="assigned"});
+  }
   function cardLines(id){
     var lines=byId("creator-"+id).value.split(/\r?\n/).map(function(x){return x.trim()}).filter(Boolean);
     if(lines.length>20||lines.some(function(x){return x.length>240||x.startsWith("#")||/[\x00-\x08\x0b-\x1f]/.test(x)}))throw Error("Use at most 20 short, non-heading lines for "+id+".");
@@ -448,7 +461,7 @@
     var agentId=byId("creator-agent-id").value.trim(),role=byId("creator-role").value;
     if(!/^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(agentId))throw Error("Stable agent ID must start with a letter and contain only letters, digits, dot, underscore, or hyphen (64 characters maximum).");
     if(role==="preserve"&&c.session.identity.card_present!==true)throw Error("A card must exist before it can be preserved.");
-    var owner=byId("creator-owner").value.trim(),concern=byId("creator-concern").value.trim(),owns=cardLines("owns"),refuses=cardLines("refuses"),approval=cardLines("approval"),root=byId("creator-root").value.trim();
+    var owner=byId("creator-owner").value.trim(),concern=role==="assigned"?byId("creator-concern").value.trim():"",owns=role==="assigned"?cardLines("owns"):[],refuses=role==="assigned"?cardLines("refuses"):[],approval=cardLines("approval"),root=byId("creator-root").value.trim();
     if(role==="assigned"&&(!owner||owner.includes("UNVERIFIED")||!concern||concern.includes("UNVERIFIED")||!owns.length||!refuses.length||owns.some(function(x){return x.includes("UNVERIFIED")})||refuses.some(function(x){return x.includes("UNVERIFIED")})))throw Error("Assigned cards require an explicit Owner, concern, at least one Owns item, and at least one Refuses boundary without UNVERIFIED placeholders.");
     if([owner,concern,root].some(function(v){return /[\x00-\x1f]/.test(v)}))throw Error("Fields must be single-line text.");
     if(root&&!root.startsWith("/"))throw Error("Workspace root must be an absolute directory path.");
@@ -484,7 +497,7 @@
   byId("creator-close").addEventListener("click",closeCreator);
   byId("creator-cancel").addEventListener("click",closeCreator);
   byId("creator").addEventListener("click",function(ev){if(ev.target===this)closeCreator()});
-  byId("creator-role").addEventListener("change",function(){byId("creator-card-fields").hidden=this.value==="preserve";clearCreatorReview();updateCreatorContext()});
+  byId("creator-role").addEventListener("change",function(){updateCreatorFields();clearCreatorReview();updateCreatorContext()});
   byId("creator").addEventListener("input",function(ev){if(ev.target.matches("input,textarea")){clearCreatorReview();updateCreatorContext()}});
   byId("creator-build").addEventListener("click",reviewCreator);
   byId("creator-download").addEventListener("click",downloadCreator);

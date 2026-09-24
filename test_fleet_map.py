@@ -75,6 +75,20 @@ class ValidationTests(unittest.TestCase):
         self.assertNotIn("private_note", json.dumps(clean))
         self.assertEqual(clean["edges"][-1]["evidence"], "approved_registry_binding")
 
+    def test_remote_stale_markers_and_runtime_receipt_are_projected(self):
+        value = snapshot()
+        value["nodes"][1]["stale"] = True
+        value["nodes"].append(node("agent:sample", "agent", "Sample agent", refs=["registry"],
+                                   observed=None, registry={"agent_id": "sample", "state": "verified",
+                                                             "host_id": "sample", "session_name": "Sample session"}))
+        value["edges"].append({**edge("occupies:sample", "agent:sample", "pane:sample:%1",
+                                      "occupies", "launcher_attested", "occupant_receipts"),
+                               "stale": False})
+        clean = R.validate_snapshot(value)
+        self.assertTrue(clean["nodes"][1]["stale"])
+        self.assertFalse(clean["edges"][-1]["stale"])
+        self.assertEqual(clean["edges"][-1]["type"], "occupies")
+
     def test_collector_schema_including_file_and_process_projection(self):
         value = R.validate_snapshot(snapshot())
         self.assertEqual(value["nodes"][2]["process"]["classification"], "agent_like_process")
@@ -203,8 +217,76 @@ class CacheTests(unittest.TestCase):
         self.assertTrue(next(n for n in value["nodes"] if n["id"] == "agent:agent-moss")["stale"])
         self.assertTrue(next(e for e in value["edges"] if e["id"] == "binding:moss")["stale"])
 
+    def test_runtime_outage_never_retains_occupancy_or_lease(self):
+        prior = snapshot()
+        prior["nodes"].append(node("agent:sample", "agent", "Sample agent", refs=["registry"], observed=None,
+                                   registry={"agent_id": "sample", "state": "verified",
+                                             "host_id": "sample", "session_name": "Sample session"}))
+        prior["nodes"].append(node("workspace:lease", "workspace", "Managed lease", refs=["work_leases"], observed=None))
+        prior["edges"].append(edge("occupies:sample", "agent:sample", "pane:sample:%1",
+                                    "occupies", "launcher_attested", "occupant_receipts"))
+        prior["edges"].append(edge("lease:sample", "agent:sample", "workspace:lease",
+                                    "work_lease", "observed", "work_leases"))
+        current = snapshot()
+        current["nodes"].append(prior["nodes"][-2])
+        current["sources"].extend([{"id": "occupant_receipts", "status": "unavailable", "as_of": TIME},
+                                   {"id": "work_leases", "status": "unavailable", "as_of": TIME}])
+        cache = self.cache_for(prior, current)
+        cache.get()
+        value = cache.get()[1]
+        self.assertNotIn("occupies", [e["type"] for e in value["edges"]])
+        self.assertNotIn("work_lease", [e["type"] for e in value["edges"]])
+        self.assertNotIn("workspace:lease", [n["id"] for n in value["nodes"]])
+
+    def test_whole_remote_stage_failure_retains_remote_branch_as_unknown(self):
+        prior = snapshot()
+        prior["nodes"].append(node("host:side", "host", "Side device", refs=["remote:side:tmux"],
+                                   observed=True, reachability="reachable"))
+        prior["nodes"].append(node("session:side:work", "session", "work", "host:side",
+                                   refs=["remote:side:tmux"], observed=True))
+        prior["edges"].append(edge("remote:handoff", "session:sample", "session:side:work",
+                                    "hands_off_to", "declared", "remote:side:state:work"))
+        current = snapshot()
+        current["nodes"].append(node("host:side", "host", "Side device", refs=["devices_conf"],
+                                     observed=None, reachability="unknown_not_checked"))
+        current["sources"].append({"id": "remote_hosts", "status": "unavailable", "as_of": TIME})
+        cache = self.cache_for(prior, current)
+        cache.get()
+        value = cache.get()[1]
+        host = next(n for n in value["nodes"] if n["id"] == "host:side")
+        session = next(n for n in value["nodes"] if n["id"] == "session:side:work")
+        self.assertIsNone(host["observed"])
+        self.assertEqual(host["last_known_reachability"], "reachable")
+        self.assertTrue(session["stale"])
+        self.assertIsNone(session["observed"])
+        self.assertTrue(session["last_known_observed"])
+        self.assertTrue(next(e for e in value["edges"] if e["id"] == "remote:handoff")["stale"])
+
 
 class RegistryBridgeTests(unittest.TestCase):
+    def test_optional_read_pipeline_orders_remote_registry_runtime(self):
+        raw = snapshot()
+        remote = copy.deepcopy(raw); remote["summary"]["remote_hosts_fresh"] = 1
+        joined = copy.deepcopy(remote); joined["summary"]["registry_revision"] = 2
+        runtime = copy.deepcopy(joined); runtime["summary"]["attested_occupants"] = 1
+        with mock.patch.dict(os.environ, {R.COLLECTOR_ENV: "/tmp/test-collector",
+                                              R.HOST_ID_ENV: "sample",
+                                              R.REMOTE_ENV: "/tmp/test-remote",
+                                              R.REMOTE_HOST_MAP_ENV: "/tmp/test-host-map",
+                                              R.REMOTE_CACHE_DIR_ENV: "/tmp/test-cache",
+                                              R.REGISTRY_ENV: "/tmp/test-registry",
+                                              R.RUNTIME_ENV: "/tmp/test-runtime"}):
+            with mock.patch.object(R, "_collector_output", return_value=raw):
+                with mock.patch.object(R, "_bounded_json_process", side_effect=[remote, joined, runtime]) as runner:
+                    value = R._collect_joined_snapshot()
+        self.assertEqual(value["summary"]["attested_occupants"], 1)
+        calls = runner.call_args_list
+        self.assertEqual([call.args[0][0] for call in calls],
+                         ["/tmp/test-remote", "/tmp/test-registry", "/tmp/test-runtime"])
+        self.assertEqual(json.loads(calls[0].kwargs["input_bytes"]), raw)
+        self.assertEqual(json.loads(calls[1].kwargs["input_bytes"]), remote)
+        self.assertEqual(json.loads(calls[2].kwargs["input_bytes"]), joined)
+
     def test_bounded_join_pipe_reads_stdin_without_temp_file(self):
         script = "import json,sys; a=json.load(sys.stdin); json.dump({'seen':a['token']},sys.stdout)"
         result = R._bounded_json_process([sys.executable, "-c", script],

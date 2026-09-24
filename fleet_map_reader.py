@@ -20,10 +20,15 @@ SCHEMA = "agent-fleet.snapshot.v1"
 COLLECTOR_ENV = "FLEETDECK_FLEET_SNAPSHOT"
 REGISTRY_ENV = "FLEETDECK_FLEET_REGISTRY"
 HOST_ID_ENV = "FLEETDECK_FLEET_HOST_ID"
+REMOTE_ENV = "FLEETDECK_FLEET_REMOTE"
+REMOTE_HOST_MAP_ENV = "FLEETDECK_FLEET_REMOTE_HOST_MAP"
+REMOTE_CACHE_DIR_ENV = "FLEETDECK_FLEET_REMOTE_CACHE_DIR"
+RUNTIME_ENV = "FLEETDECK_FLEET_RUNTIME"
 DEFAULT_COLLECTOR = "~/bin/tm-fleet-snapshot"
 MAX_STDOUT = 2 * 1024 * 1024
 MAX_STDERR = 4096
 TIMEOUT = 8.0
+REMOTE_TIMEOUT = 25.0
 MIN_INTERVAL = 3.0
 MAX_NODES = 2000
 MAX_EDGES = 4000
@@ -127,6 +132,8 @@ def validate_snapshot(raw):
             "source_refs": [_safe_text(ref, limit=100) for ref in refs],
             "observed_at": _safe_text(item.get("observed_at"), limit=40),
         }
+        if "stale" in item:
+            node["stale"] = _optional_bool(item["stale"])
         if "reachability" in item:
             node["reachability"] = _safe_text(item["reachability"], limit=60)
         if not node["label"]:
@@ -201,7 +208,8 @@ def validate_snapshot(raw):
                              "uses_workspace", "reads_file", "executes_file",
                              "chat_routes_to", "describes_session", "bound_chat",
                              "router_addressable", "router_agent_pane_ready",
-                             "planned_binding", "verified_binding", "uses", "reads"}:
+                             "planned_binding", "verified_binding", "occupies",
+                             "work_lease", "uses", "reads"}:
             raise SnapshotError("unknown edge type")
         freshness = _project_map(item.get("freshness"),
                                  text_keys=("as_of", "source_mtime", "status"))
@@ -218,8 +226,10 @@ def validate_snapshot(raw):
             "display": _safe_text(item.get("display"), limit=140),
             "freshness": freshness,
         }
+        if "stale" in item:
+            edge["stale"] = _optional_bool(item["stale"])
         if edge["evidence"] not in {"declared", "observed", "computed",
-                                    "approved_registry_binding"}:
+                                    "approved_registry_binding", "launcher_attested"}:
             raise SnapshotError("invalid evidence")
         edges.append(edge)
 
@@ -254,7 +264,7 @@ def validate_snapshot(raw):
             "sources": sources, "unknowns": unknowns}
 
 
-def _bounded_json_process(argv, *, input_bytes=None, source="source"):
+def _bounded_json_process(argv, *, input_bytes=None, source="source", timeout=TIMEOUT):
     """Run a fixed argv with bounded pipes, no shell, and no private temp file."""
     if input_bytes is not None and len(input_bytes) > MAX_STDOUT:
         raise SnapshotError("source input exceeded limit")
@@ -267,7 +277,7 @@ def _bounded_json_process(argv, *, input_bytes=None, source="source"):
     sel = selectors.DefaultSelector()
     chunks = {"out": bytearray(), "err": bytearray()}
     sent = 0
-    deadline = time.monotonic() + TIMEOUT
+    deadline = time.monotonic() + timeout
     try:
         sel.register(proc.stdout, selectors.EVENT_READ, "out")
         sel.register(proc.stderr, selectors.EVENT_READ, "err")
@@ -323,8 +333,7 @@ def _bounded_json_process(argv, *, input_bytes=None, source="source"):
         proc.stderr.close()
 
 
-def _collector_output(executable):
-    """Read metadata-only collector output using its fixed command contract."""
+def _fleet_host_id():
     host_id = os.environ.get(HOST_ID_ENV) or "local"
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,39}", host_id):
         raise SnapshotError("invalid fleet host ID")
@@ -334,31 +343,75 @@ def _collector_output(executable):
         pass
     else:
         raise SnapshotError("fleet host ID cannot be an address")
+    return host_id
+
+
+def _collector_output(executable):
+    """Read metadata-only collector output using its fixed command contract."""
+    host_id = _fleet_host_id()
     return _bounded_json_process([os.path.expanduser(executable), "--host-id", host_id, "--json"],
                                  source="collector")
 
 
+def _source_unavailable(raw, source_id, detail):
+    raw = copy.deepcopy(raw)
+    stamp = _utc_now()
+    raw.setdefault("sources", []).append({"id": source_id, "status": "unavailable",
+                                           "as_of": stamp})
+    raw.setdefault("unknowns", []).append({"id": "unknown:" + source_id,
+                                            "kind": "source_unavailable", "source": source_id,
+                                            "as_of": stamp, "detail": detail})
+    raw.setdefault("summary", {})["source_health"] = "degraded"
+    return raw
+
+
+def _pipe_json(raw):
+    return json.dumps(raw, separators=(",", ":")).encode("utf-8")
+
+
 def _collect_joined_snapshot():
-    """Join private registry facts through its CLI, retaining live graph on failure."""
+    """Build the opt-in read pipeline without a private snapshot temp file."""
     raw = _collector_output(os.environ.get(COLLECTOR_ENV) or DEFAULT_COLLECTOR)
+    remote_executable = os.environ.get(REMOTE_ENV)
+    if remote_executable:
+        host_map = os.environ.get(REMOTE_HOST_MAP_ENV)
+        cache_dir = os.environ.get(REMOTE_CACHE_DIR_ENV)
+        if not all(path and os.path.isabs(path) for path in (remote_executable, host_map, cache_dir)):
+            raw = _source_unavailable(raw, "remote_hosts", "Remote host map is unavailable.")
+        else:
+            try:
+                raw = _bounded_json_process([remote_executable, "--host-map", host_map,
+                                             "--cache-dir", cache_dir, "--all",
+                                             "--local-snapshot", "-", "--local-host-id",
+                                             _fleet_host_id(), "--json"],
+                                            input_bytes=_pipe_json(raw), source="remote",
+                                            timeout=REMOTE_TIMEOUT)
+            except (SnapshotError, OSError, ValueError, TypeError):
+                raw = _source_unavailable(raw, "remote_hosts", "Remote metadata unavailable.")
     registry_executable = os.environ.get(REGISTRY_ENV)
-    if not registry_executable:
-        return raw
-    if not os.path.isabs(registry_executable):
-        raise SnapshotError("registry executable must be an absolute path")
-    try:
-        payload = json.dumps(raw, separators=(",", ":")).encode("utf-8")
-        return _bounded_json_process([registry_executable, "join", "--snapshot", "-", "--json"],
-                                     input_bytes=payload, source="registry")
-    except (SnapshotError, OSError, ValueError, TypeError):
-        raw = copy.deepcopy(raw)
-        raw.setdefault("sources", []).append({"id": "registry", "status": "unavailable",
-                                               "as_of": _utc_now()})
-        raw.setdefault("unknowns", []).append({"id": "registry", "kind": "source_unavailable",
-                                                "source": "registry", "as_of": _utc_now(),
-                                                "detail": "Registry join unavailable."})
-        raw.setdefault("summary", {})["source_health"] = "degraded"
-        return raw
+    if registry_executable:
+        if not os.path.isabs(registry_executable):
+            raw = _source_unavailable(raw, "registry", "Registry join unavailable.")
+        else:
+            try:
+                raw = _bounded_json_process([registry_executable, "join", "--snapshot", "-", "--json"],
+                                            input_bytes=_pipe_json(raw), source="registry")
+            except (SnapshotError, OSError, ValueError, TypeError):
+                raw = _source_unavailable(raw, "registry", "Registry join unavailable.")
+    runtime_executable = os.environ.get(RUNTIME_ENV)
+    if runtime_executable:
+        if not os.path.isabs(runtime_executable):
+            raw = _source_unavailable(raw, "occupant_receipts", "Runtime receipt check unavailable.")
+            raw = _source_unavailable(raw, "work_leases", "Work lease check unavailable.")
+        else:
+            try:
+                raw = _bounded_json_process([runtime_executable, "project", "--snapshot", "-",
+                                             "--host-id", _fleet_host_id(), "--json"],
+                                            input_bytes=_pipe_json(raw), source="runtime")
+            except (SnapshotError, OSError, ValueError, TypeError):
+                raw = _source_unavailable(raw, "occupant_receipts", "Runtime receipt check unavailable.")
+                raw = _source_unavailable(raw, "work_leases", "Work lease check unavailable.")
+    return raw
 
 
 class FleetMapCache:
@@ -412,7 +465,8 @@ fleet_map_cache = FleetMapCache()
 
 def _from_unavailable(ref, unavailable):
     aliases = {"identity_cards": "identity:", "state_cards": "state:",
-               "routing_descriptions": "routing_conf", "chat_bindings": "chatbind"}
+               "routing_descriptions": "routing_conf", "chat_bindings": "chatbind",
+               "remote_hosts": "remote:"}
     return (any(ref == source or ref.startswith(source + ":") or ref.startswith(source + "#")
                 or ref.startswith(aliases.get(source, "\x00")) for source in unavailable)
             or (("tmux" in unavailable or "routing_descriptions" in unavailable)
@@ -429,13 +483,17 @@ def _retain_unavailable_sources(current, previous, unavailable):
                     or ("registry" in unavailable and "registry" in old))
         if not affected:
             continue
+        if old["type"] == "workspace" and "work_leases" in old["source_refs"]:
+            continue
+        remote_lost = ("remote_hosts" in unavailable
+                       and any(ref.startswith("remote:") for ref in old["source_refs"]))
         if node_id not in current_nodes:
             kept = copy.deepcopy(old)
             kept["stale"] = True
             if "sessions_conf" in unavailable:
                 kept["last_known_declared"] = kept["declared"]
                 kept["declared"] = None
-            if "tmux" in unavailable:
+            if "tmux" in unavailable or remote_lost:
                 kept["last_known_observed"] = kept["observed"]
                 kept["observed"] = None
             elif kept["type"] in ("session", "window", "pane") and kept["observed"] is not None:
@@ -461,8 +519,17 @@ def _retain_unavailable_sources(current, previous, unavailable):
             if "tmux" in unavailable and old["observed"] is not None:
                 now["last_known_observed"] = old["observed"]
                 now["observed"] = None
+            if remote_lost and old["observed"] is not None:
+                now["last_known_observed"] = old["observed"]
+                now["observed"] = None
+                if old.get("reachability"):
+                    now["last_known_reachability"] = old["reachability"]
+                    now.setdefault("stale_fields", []).append("reachability")
     current_edge_ids = {edge["id"] for edge in current["edges"]}
     for old in previous["edges"]:
+        if old["type"] in ("occupies", "work_lease"):
+            # A dated receipt or lease is never a current occupant/lock fact.
+            continue
         if old["id"] in current_edge_ids or not _from_unavailable(old["source"], unavailable):
             continue
         if old["from"] not in current_nodes or old["to"] not in current_nodes:

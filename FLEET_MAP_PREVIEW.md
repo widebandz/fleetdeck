@@ -13,6 +13,10 @@ COLLECTOR=/absolute/path/to/tm-fleet-snapshot
 REGISTRY=/absolute/path/to/tm-fleet-registry
 SESSIONS_CONF=/absolute/path/to/sessions.conf
 HOST_ID=stable-local-host-id
+# Optional: REMOTE=/absolute/path/to/tm-fleet-remote
+# Optional: REMOTE_MAP=/private/remote-hosts.json
+# Optional: REMOTE_CACHE=/private/remote-cache
+# Optional: RUNTIME=/absolute/path/to/tm-fleet-runtime
 FLEETDECK_HOST=sample.invalid \
 FLEETDECK_BIND=127.0.0.1 \
 FLEETDECK_PORT=18790 \
@@ -20,6 +24,9 @@ FLEETDECK_FLEET_MAP=1 \
 FLEETDECK_FLEET_SNAPSHOT="$COLLECTOR" \
 FLEETDECK_FLEET_REGISTRY="$REGISTRY" \
 FLEETDECK_FLEET_HOST_ID="$HOST_ID" \
+# Add FLEETDECK_FLEET_REMOTE, FLEETDECK_FLEET_REMOTE_HOST_MAP,
+# FLEETDECK_FLEET_REMOTE_CACHE_DIR, and FLEETDECK_FLEET_RUNTIME only together
+# when those private sources are configured.
 TM_SESSIONS_CONF="$SESSIONS_CONF" \
 python3 portal_server.py
 ```
@@ -33,6 +40,15 @@ and output limits. No snapshot temp file is written. The browser payload is
 projected through a strict schema and privacy filter. If the registry join
 fails, the current tmux graph remains visible, registry facts become stale,
 and the creator cannot produce an applyable draft.
+
+For mapped remote hosts, set `FLEETDECK_FLEET_REMOTE` to the absolute remote
+collector executable, `FLEETDECK_FLEET_REMOTE_HOST_MAP` to a private host map,
+and `FLEETDECK_FLEET_REMOTE_CACHE_DIR` to its private cache directory. The
+reader pipes the local graph to the remote merge before registry join. Set
+`FLEETDECK_FLEET_RUNTIME` to the absolute runtime projector executable to
+attach fresh attested occupants and managed leases after registry join. These
+are optional read stages; the host map, SSH targets, raw errors, and runtime
+receipt files do not enter the browser payload.
 
 Select a local observed session or pane, then choose **+ New Agent**. Existing
 assigned cards default to **Preserve existing card exactly**. Authoring an
