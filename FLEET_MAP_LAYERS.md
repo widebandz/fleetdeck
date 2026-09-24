@@ -1,7 +1,11 @@
 # Fleet map: live infrastructure layers
 
+For the scoped DQR example, see [DQR scope map](DQR_SCOPE_MAP.md). It follows
+the configured reply approval and production image paths separately, and
+records the current boundary mismatches.
+
 Audited 2026-09-24 against the live, redacted `/api/fleet-map` response. The
-snapshot held **205 nodes and 203 semantic edges**. Counts and listener status
+snapshot held **210 nodes and 212 semantic edges** after the DQR scope projection. Counts and listener status
 can change; the evidence labels on each object matter more than a fixed count.
 
 ## Progressive view
@@ -29,15 +33,15 @@ short initial set with a reveal control.
 | Tab, in UI order | Evidence shown now | Limit |
 | --- | --- | --- |
 | Overview | Selected session, observed host placement, declared bound chat. | No physical phone or delivered-message claim. |
-| Identity | Card role and three safely projected Trace responsibility bullets. | No verified registry agent or current occupant. |
-| Routing | Bound-chat daemon and owner, router metadata, declared outbox sender route. | A configured or computed path is not delivery. |
-| Runtime | Host → session → window → pane and process classification. | Process label is not stable agent identity. |
-| Tools & skills | Card-listed tools and scripts. | Use unobserved; per-Trace skills not inventoried. |
+| Identity | Card roles and short responsibility summaries; DQR engagement, operator, and Git identity. | No verified registry agent or current occupant. |
+| Routing | Bound-chat ownership, Trace router metadata and outbox, and DQR's separate held-reply gate. | A configured or computed path is not delivery. |
+| Runtime | Host → session → window → pane, process classification, and DQR's working-root mismatch. | Process label is not stable agent identity or confinement. |
+| Tools & skills | Card-listed tools and scripts. | Use unobserved; per-session skills not inventoried. |
 | Memory & MD | Trace's present `AGENTS.md` and `CLAUDE.md`, card and standard metadata. | Contents and current process loading unobserved. |
 | Services & APIs | Registered services and observed local port listeners, including map preview. | Listener does not prove Trace called an API or identify its process. |
 | Network | Symbolic Serve endpoints and configured proxy targets; local/unchecked hosts. | Requests, phone identity, remote SSH reachability unobserved. |
-| Data & state | Symbolic Trace outbox, declared writer/consumer relations, root checks. | No queued content, approved path claim, or current lease. |
-| Deployment | Four local LaunchAgent declarations and configured targets. | Registration and configuration do not prove each run or release. |
+| Data & state | Symbolic Trace outbox, DQR held drafts and repository, declared writer/consumer relations, root checks. | No queued content, approved path claim, or current lease. |
+| Deployment | Four local LaunchAgent declarations, DQR push wrapper, GitHub `main`, and linked Vercel project. | Configuration does not prove a run or release; DQR image publication lacks a predeploy approval gate. |
 | Terminal detail | Full branch and named connections. | Same evidence limits as focused tabs. |
 
 Only show populated elements as nodes and pipes. When a layer has no supported
@@ -66,15 +70,16 @@ checks to one target do not prove multiple deliveries.
 | `host` | 2 | Compute/network. Brainwave local and observed; one declared Mac unchecked remotely. |
 | `session` | 40 | Identity/routing/runtime. Stable tmux name, separate from agent ID. |
 | `window`, `pane` | 41 each | Runtime. Process classification is observation, not occupant proof. |
-| `chat` | 5 | Routing. Four bound chats and a router command channel. |
+| `chat` | 6 | Routing. Four bound chats, a router command channel, and DQR's separate private approval chat. |
 | `tool`, `file` | 5 each | Capabilities. Exact card references; invocation unobserved. |
+| `workspace` | 1 | Data & state. DQR's declared repository, with its path redacted. |
 | `instruction` | 2 | Memory & MD. Trace instruction-file presence; content/load unobserved. |
 | `service` | 36 | Services & APIs. Thirty-five registrations plus local map preview. |
-| `endpoint` | 23 | Network. Symbolic tailnet HTTPS proxy endpoints, including map link. |
+| `endpoint` | 25 | Network/deployment. Symbolic tailnet HTTPS proxy endpoints, including map link, plus DQR GitHub `main` and production site. |
 | `job` | 4 | Deployment. Chat binding, map preview, Trace keeper, Trace outbox. |
-| `data` | 1 | Data & state. Symbolic Trace outbox queue; no content. |
+| `data` | 2 | Data & state. Symbolic Trace outbox and DQR held drafts; no content. |
 
-The schema also permits `agent`, `skill`, `workspace`, and `channel` nodes;
+The schema also permits `agent`, `skill`, and `channel` nodes;
 none exist in this live graph. The registry has zero planned or verified agent
 bindings, approved path claims, current occupants, or active work leases.
 
@@ -98,6 +103,10 @@ bindings, approved path claims, current occupants, or active work leases.
 | `consumes_queue` | 1 | Outbox sender job → outbox; queued text-file read target. | Declared; individual reads/sends unobserved. |
 | `schedules_job` | 4 | Host → LaunchAgent job; job registration. | Declared; load status on job. |
 | `launches` | 2 | Keeper job → Trace session; map job → preview service. | Declared launch targets; execution separate. |
+| `uses_workspace` | 1 | DQR session → DQR repository; declared root, with current pane placement checked separately. | Declared; access unobserved. |
+| `holds_draft`, `approves_draft`, `releases_reply` | 1 each | Bound DQR chat → held draft; private operator chat → held draft; approved draft → bound chat. | Configured gate; message delivery unobserved. |
+| `stages_media`, `writes_asset`, `invokes_tool` | 1 each | Bound DQR chat → media tool; media tool → repo asset; media tool → push wrapper. | Script path; execution unobserved. |
+| `pushes_to`, `triggers_deploy` | 1 each | Push wrapper → GitHub `main`; GitHub `main` → linked Vercel production project. | Configured path; a particular release unobserved. |
 
 The map HTTPS route is `endpoint:tailnet-map → service:fleet-map-local` with
 payload **HTTPS requests**. Reverse HTTP responses are implied by the
