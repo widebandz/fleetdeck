@@ -13,10 +13,6 @@ COLLECTOR=/absolute/path/to/tm-fleet-snapshot
 REGISTRY=/absolute/path/to/tm-fleet-registry
 SESSIONS_CONF=/absolute/path/to/sessions.conf
 HOST_ID=stable-local-host-id
-# Optional: REMOTE=/absolute/path/to/tm-fleet-remote
-# Optional: REMOTE_MAP=/private/remote-hosts.json
-# Optional: REMOTE_CACHE=/private/remote-cache
-# Optional: RUNTIME=/absolute/path/to/tm-fleet-runtime
 FLEETDECK_HOST=sample.invalid \
 FLEETDECK_BIND=127.0.0.1 \
 FLEETDECK_PORT=18790 \
@@ -24,9 +20,6 @@ FLEETDECK_FLEET_MAP=1 \
 FLEETDECK_FLEET_SNAPSHOT="$COLLECTOR" \
 FLEETDECK_FLEET_REGISTRY="$REGISTRY" \
 FLEETDECK_FLEET_HOST_ID="$HOST_ID" \
-# Add FLEETDECK_FLEET_REMOTE, FLEETDECK_FLEET_REMOTE_HOST_MAP,
-# FLEETDECK_FLEET_REMOTE_CACHE_DIR, and FLEETDECK_FLEET_RUNTIME only together
-# when those private sources are configured.
 TM_SESSIONS_CONF="$SESSIONS_CONF" \
 python3 portal_server.py
 ```
@@ -49,6 +42,16 @@ reader pipes the local graph to the remote merge before registry join. Set
 attach fresh attested occupants and managed leases after registry join. These
 are optional read stages; the host map, SSH targets, raw errors, and runtime
 receipt files do not enter the browser payload.
+
+To enable those stages, export the following before running the preview
+command above:
+
+```sh
+export FLEETDECK_FLEET_REMOTE=/absolute/path/to/tm-fleet-remote
+export FLEETDECK_FLEET_REMOTE_HOST_MAP=/private/remote-hosts.json
+export FLEETDECK_FLEET_REMOTE_CACHE_DIR=/private/remote-cache
+export FLEETDECK_FLEET_RUNTIME=/absolute/path/to/tm-fleet-runtime
+```
 
 Select a local observed session or pane, then choose **+ New Agent**. Existing
 assigned cards default to **Preserve existing card exactly**. Authoring an
