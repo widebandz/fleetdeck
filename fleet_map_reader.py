@@ -33,6 +33,28 @@ REMOTE_TIMEOUT = 25.0
 MIN_INTERVAL = 3.0
 MAX_NODES = 2000
 MAX_EDGES = 4000
+DQR_SCOPE_KEYS = {"engagement_owner", "operator", "git_identity", "repository",
+                  "chat_binding", "participants", "reply_approval", "media_publication",
+                  "publish_approval", "runtime_scope", "deployment"}
+DQR_SCOPE_VALUES = {
+    "engagement_owner": re.compile(r"dailyquranreading\.com\s+[—-]\s+[A-Za-z][A-Za-z .'-]{1,60} engagement"),
+    "operator": re.compile(r"Zayed \(configured operator\)"),
+    "git_identity": re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,39} \(repository Git user; credential not rechecked\)"),
+    "repository": re.compile(r"GitHub haqzy/dailyquranreading · main"),
+    "chat_binding": re.compile(r"DQR group chat configured; exact ID hidden"),
+    "participants": re.compile(r"(?:[1-9]|1[0-2]) configured handles: (?:[0-9]|1[0-2]) operator aliases, (?:[0-9]|1[0-2]) other; handle-to-person mapping unverified"),
+    "reply_approval": re.compile(r"External replies held for an exact operator command in a separate private chat"),
+    "media_publication": re.compile(r"Incoming images are sanitized then auto-pushed by default"),
+    "publish_approval": re.compile(r"Mismatch: card asks for live-site approval; media script auto-pushes"),
+    "runtime_scope": re.compile(r"(?:Observed pane outside card root; DQR absent from session standard|DQR absent from session standard; pane placement unknown or separate)"),
+    "deployment": re.compile(r"Vercel project linked locally; production release unobserved"),
+}
+DQR_SCOPE_EVIDENCE = {"engagement_owner": "declared", "operator": "declared",
+                      "git_identity": "checked", "repository": "checked",
+                      "chat_binding": "declared", "participants": "checked",
+                      "reply_approval": "declared", "media_publication": "declared",
+                      "publish_approval": "mismatch", "runtime_scope": "checked",
+                      "deployment": "declared"}
 
 _PRIVATE_VALUE = re.compile(
     r"(?:\b(?:\d{1,3}\.){3}\d{1,3}\b|\+?\d{10,}\b|"
@@ -196,13 +218,39 @@ def validate_snapshot(raw):
             entries = [_safe_text(entry, limit=140) for entry in entries]
             if any(not entry for entry in entries):
                 raise SnapshotError("invalid responsibilities")
-            if duties.get("source") != "infra:trace_identity" or duties.get("status") != "declared":
+            duty_source = duties.get("source")
+            if duty_source not in ({"infra:trace_identity", "infra:dqr_identity"}
+                                    if node_id == "session:DQR" else {"infra:trace_identity"}) or duties.get("status") != "declared":
                 raise SnapshotError("invalid responsibilities source")
             as_of = _safe_text(duties.get("as_of"), limit=40)
             if not as_of:
                 raise SnapshotError("invalid responsibilities time")
-            node["responsibilities"] = {"items": entries, "source": "infra:trace_identity",
+            node["responsibilities"] = {"items": entries, "source": duty_source,
                                         "as_of": as_of, "status": "declared"}
+        if "scope" in item:
+            if node_id != "session:DQR" or node_type != "session" or not isinstance(item["scope"], dict):
+                raise SnapshotError("invalid DQR scope")
+            raw_facts = item["scope"].get("facts")
+            if not isinstance(raw_facts, list) or not 1 <= len(raw_facts) <= len(DQR_SCOPE_KEYS):
+                raise SnapshotError("invalid DQR scope facts")
+            facts, keys = [], set()
+            for raw_fact in raw_facts:
+                if not isinstance(raw_fact, dict):
+                    raise SnapshotError("invalid DQR scope fact")
+                key = raw_fact.get("key")
+                if key not in DQR_SCOPE_KEYS or key in keys:
+                    raise SnapshotError("invalid DQR scope key")
+                keys.add(key)
+                value = _safe_text(raw_fact.get("value"), limit=140)
+                evidence = raw_fact.get("evidence")
+                source = _safe_text(raw_fact.get("source"), limit=100)
+                as_of = _safe_text(raw_fact.get("as_of"), limit=40)
+                if (not value or not DQR_SCOPE_VALUES[key].fullmatch(value)
+                        or evidence != DQR_SCOPE_EVIDENCE[key] or not source or not as_of):
+                    raise SnapshotError("invalid DQR scope provenance")
+                facts.append({"key": key, "value": value, "evidence": evidence,
+                              "source": source, "as_of": as_of})
+            node["scope"] = {"facts": facts}
         if node_type in ("session", "agent"):
             registry = _project_map(item.get("registry"),
                                     text_keys=("agent_id", "host_id", "session_name", "state"))
@@ -242,7 +290,9 @@ def validate_snapshot(raw):
                              "planned_binding", "verified_binding", "path_claim", "occupies",
                              "work_lease", "uses", "reads", "declares_service", "runs_service",
                              "schedules_job", "launches", "has_instruction_file", "writes_queue",
-                             "consumes_queue", "sends_chat", "handles_bound_chat", "proxy_routes_to"}:
+                             "consumes_queue", "sends_chat", "handles_bound_chat", "proxy_routes_to",
+                             "holds_draft", "approves_draft", "releases_reply", "stages_media",
+                             "writes_asset", "invokes_tool", "pushes_to", "triggers_deploy"}:
             raise SnapshotError("unknown edge type")
         freshness = _project_map(item.get("freshness"),
                                  text_keys=("as_of", "source_mtime", "status"))
@@ -261,7 +311,9 @@ def validate_snapshot(raw):
         }
         infra_types = {"declares_service", "runs_service", "schedules_job", "launches",
                        "has_instruction_file", "writes_queue", "consumes_queue",
-                       "sends_chat", "handles_bound_chat", "proxy_routes_to"}
+                       "sends_chat", "handles_bound_chat", "proxy_routes_to",
+                       "holds_draft", "approves_draft", "releases_reply", "stages_media",
+                       "writes_asset", "invokes_tool", "pushes_to", "triggers_deploy"}
         if "layer" in item or edge_type in infra_types:
             layer = _safe_text(item.get("layer"), limit=30)
             if layer not in {"identity", "routing", "runtime", "capabilities", "instructions",
@@ -583,7 +635,7 @@ def _retain_unavailable_sources(current, previous, unavailable):
             if "registry" in unavailable and "registry" in old:
                 now["last_known_registry"] = copy.deepcopy(old["registry"])
                 now.setdefault("stale_fields", []).append("registry")
-            if ({"infra", "infra:trace_identity"} & unavailable) and "responsibilities" in old:
+            if ({"infra", "infra:trace_identity", "infra:dqr_identity"} & unavailable) and "responsibilities" in old:
                 now["last_known_responsibilities"] = copy.deepcopy(old["responsibilities"])
                 now.setdefault("stale_fields", []).append("responsibilities")
             if "sessions_conf" in unavailable and now["declared"] is None and old["declared"] is not None:

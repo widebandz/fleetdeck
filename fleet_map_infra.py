@@ -627,6 +627,269 @@ def _tailscale(graph: Graph, env: dict[str, str], runner,
     graph.data.setdefault("summary", {})["tailnet_routes_declared"] = len(routes)
 
 
+def _dqr_path(env: dict[str, str], key: str, default: Path) -> Path | None:
+    value = env.get(key)
+    path = Path(value).expanduser() if value else default
+    return path if path.is_absolute() else None
+
+
+def _dqr_assignment(script: str | None, key: str) -> str | None:
+    if not script:
+        return None
+    quoted = _assignment(script, key)
+    if quoted is not None:
+        return quoted
+    found = re.findall(r"^" + re.escape(key) + r"=([A-Za-z0-9_./-]+)(?:\s*(?:#.*)?)?$", script, re.M)
+    return found[0] if len(found) == 1 else None
+
+
+def _dqr_scope(graph: Graph, env: dict[str, str], runner) -> None:
+    """Project a bounded DQR example without exposing private chat or auth data.
+
+    The account and pipeline claims below require agreement among independent
+    local declarations. No message, credential, participant handle, or raw
+    filesystem path is copied into the snapshot.
+    """
+    session = next((n for n in graph.data["nodes"] if isinstance(n, dict)
+                    and n.get("id") == "session:DQR" and n.get("type") == "session"), None)
+    if session is None:
+        return
+
+    facts: list[dict[str, str]] = []
+
+    def fact(key: str, value: str, evidence: str, source: str) -> None:
+        if safe_text(value, 140) and safe_text(source, 100):
+            facts.append({"key": key, "value": value, "evidence": evidence,
+                          "source": source, "as_of": graph.at})
+
+    home = Path(env.get("HOME") or Path.home())
+    card_path = _dqr_path(env, "FLEETDECK_FLEET_DQR_CARD",
+                          Path(env.get("TM_MEMORY_DIR") or home / ".config/agent-session-memory") / "identity/DQR.md")
+    bind_path = _dqr_path(env, "FLEETDECK_FLEET_DQR_CHATBIND",
+                          Path(env.get("TM_CHATBIND") or home / ".imsg-chatbind.json"))
+    bind_script_path = _dqr_path(env, "FLEETDECK_FLEET_DQR_CHATBIND_SCRIPT", home / "bin/imsg-chatbind")
+    media_path = _dqr_path(env, "FLEETDECK_FLEET_DQR_MEDIA_SCRIPT", home / "bin/dqr-media")
+    push_path = _dqr_path(env, "FLEETDECK_FLEET_DQR_PUSH_SCRIPT", home / "bin/dqr-push")
+    repo = _dqr_path(env, "FLEETDECK_FLEET_DQR_REPO", home / "dailyquranreading")
+
+    card_text = read_text(card_path) if card_path else None
+    card = _card_fields(card_text) if card_text else {}
+    card_ok = card.get("session") == "DQR"
+    graph.source("infra:dqr_identity", card_ok, card_path,
+                 "DQR identity card unavailable or mismatched; ownership and policy are unknown.")
+    if card_ok:
+        owner = card.get("owner")
+        if (isinstance(owner, str)
+                and re.fullmatch(r"dailyquranreading\.com\s+[—-]\s+[A-Za-z][A-Za-z .'-]{1,60} engagement", owner)
+                and safe_text(owner, 100)):
+            fact("engagement_owner", owner, "declared", "identity:DQR#owner")
+        duties = _responsibilities(card_text)
+        if duties:
+            session["responsibilities"] = {"items": duties, "source": "infra:dqr_identity",
+                                            "as_of": graph.at, "status": "declared"}
+            if "infra:dqr_identity" not in session["source_refs"]:
+                session["source_refs"].append("infra:dqr_identity")
+
+    binding = read_json(bind_path) if bind_path else None
+    entries = binding.get("bound") if isinstance(binding, dict) else None
+    matches = [b for b in entries if isinstance(b, dict) and b.get("session") == "DQR"
+               and type(b.get("chat_id")) is int and b["chat_id"] >= 0] if isinstance(entries, list) else []
+    bound = matches[0] if len(matches) == 1 else None
+    card_binding = card.get("chat_binding") if card_ok else None
+    chat_matches_card = bool(bound and isinstance(card_binding, str)
+                             and re.fullmatch(r"imsg:chat-[0-9]+", card_binding)
+                             and card_binding == f"imsg:chat-{bound['chat_id']}")
+    bound_node = "chat:bound-DQR"
+    bound_edge = any(isinstance(e, dict) and e.get("type") == "chat_routes_to"
+                     and e.get("from") == bound_node and e.get("to") == "session:DQR"
+                     and e.get("source") == "chatbind" for e in graph.data["edges"])
+    unique_chat_id = bool(bound and isinstance(entries, list) and
+                          sum(isinstance(b, dict) and b.get("chat_id") == bound["chat_id"]
+                              for b in entries) == 1)
+    bind_ok = bool(chat_matches_card and bound_edge and bound_node in graph.nodes and unique_chat_id)
+    graph.source("infra:dqr_chatbind", bind_ok, bind_path,
+                 "DQR bound chat, card, and collector route do not agree; chat scope is unknown.")
+    bind_script = read_text(bind_script_path, 128_000) if bind_script_path else None
+    script_ok = bool(bind_script and all(marker in bind_script for marker in
+                     ("def private_draft_hold", "def hold_draft", "def handle_approval",
+                      "def validate_bound_target", "stage_images(incoming", "send_to_bound_chat",
+                      "if is_operator(sender) and chat_id == OPERATOR_CHAT_ID:",
+                      'pend.get("approval_chat_id") == chat_id',
+                      'live.get("guid") != b.get("guid")',
+                      "expected and actual != expected")))
+    graph.source("infra:dqr_chatbind_script", script_ok, bind_script_path,
+                 "DQR chat handler logic unavailable; approval and media routes are unknown.")
+
+    approval_ok = False
+    media_bound = False
+    if bind_ok:
+        fact("chat_binding", "DQR group chat configured; exact ID hidden", "declared", "chatbind+DQR-card")
+        label = bound.get("label")
+        operator = binding.get("operator")
+        if (isinstance(operator, str) and operator and isinstance(label, str)
+                and re.match(r"^DQR\s*[—-]\s*Zayed\s*\+\s*Imam El\b", label)):
+            fact("operator", "Zayed (configured operator)", "declared", "chatbind#operator")
+        parts = bound.get("participants")
+        aliases = binding.get("operator_aliases")
+        if (isinstance(parts, list) and 1 <= len(parts) <= 12
+                and all(isinstance(v, str) and 1 <= len(v) <= 120 for v in parts)
+                and isinstance(aliases, list) and len(aliases) <= 12):
+            def handle(value: str) -> str:
+                digits = re.sub(r"\D", "", value)
+                return digits[-10:] if len(digits) >= 10 else value.strip().lower()
+            operator_keys = {handle(v) for v in [operator, *aliases] if isinstance(v, str)}
+            operator_count = sum(handle(v) in operator_keys for v in parts)
+            fact("participants", f"{len(parts)} configured handles: {operator_count} operator aliases, "
+                 f"{len(parts)-operator_count} other; handle-to-person mapping unverified",
+                 "checked", "chatbind#participants")
+        approval_id = bound.get("approval_chat_id")
+        approvals = [b for b in entries if isinstance(b, dict)
+                     and type(b.get("chat_id")) is int and b["chat_id"] == approval_id]
+        approval_ok = bool(script_ok and len(approvals) == 1 and approval_id != bound["chat_id"]
+                           and approval_id == binding.get("operator_chat_id")
+                           and bound.get("external_mode") == "private-draft-and-hold")
+        media_bound = bound.get("media") is True
+        if approval_ok:
+            fact("reply_approval", "External replies held for an exact operator command in a separate private chat",
+                 "declared", "chatbind+imsg-chatbind")
+            graph.node("chat:dqr-approval", "chat", "DQR private approval chat", "infra:dqr_chatbind",
+                       kind="private operator channel", status="configured")
+            graph.node("data:dqr-held-drafts", "data", "DQR held reply drafts", "infra:dqr_chatbind_script",
+                       kind="pending drafts", status="configured")
+            graph.edge("holds_draft:dqr", bound_node, "data:dqr-held-drafts", "holds_draft",
+                       "infra:dqr_chatbind_script", "routing", "external text becomes a held reply draft",
+                       "External message is drafted and held; no client reply is sent", source_path=bind_script_path)
+            graph.edge("approves_draft:dqr", "chat:dqr-approval", "data:dqr-held-drafts", "approves_draft",
+                       "infra:dqr_chatbind_script", "routing", "exact operator draft command",
+                       "Only the configured private operator chat can approve a matching held draft", source_path=bind_script_path)
+            graph.edge("releases_reply:dqr", "data:dqr-held-drafts", bound_node, "releases_reply",
+                       "infra:dqr_chatbind_script", "routing", "approved draft reply text",
+                       "Approval can release the matching draft after target revalidation; delivery unobserved",
+                       source_path=bind_script_path)
+
+    media_script = read_text(media_path, 128_000) if media_path else None
+    push_script = read_text(push_path, 128_000) if push_path else None
+    media_script_ok = bool(media_script and all(marker in media_script for marker in
+                           ('push=1', 'if [[ "$push" == "1" ]]', '"$PUSH"',
+                            '"$EXIFTOOL" -all=', '"$EXIFTOOL" -gps:all',
+                            'DEST_REL="public/images"')))
+    media_ref = re.search(r'^DQR_MEDIA\s*=\s*"([^"\n]+)"', bind_script, re.M) if bind_script else None
+    media_link_ok = bool(script_ok and media_bound and media_path and media_ref
+                         and os.path.isabs(media_ref.group(1))
+                         and os.path.realpath(media_ref.group(1)) == os.path.realpath(media_path))
+    graph.source("infra:dqr_media", bool(media_script_ok and media_link_ok), media_path,
+                 "DQR media handler is unavailable or does not match the chat configuration.")
+
+    repo_ok = bool(repo and repo.is_dir() and (repo / ".git").exists())
+    git_cli = env.get("FLEETDECK_FLEET_DQR_GIT_CLI") or shutil.which("git")
+    git = (lambda *args: runner([git_cli, "-C", str(repo), *args], timeout=4, max_bytes=2048)) if repo_ok and git_cli and os.path.isabs(git_cli) else None
+    git_name = git("config", "user.name") if git else None
+    git_branch = git("branch", "--show-current") if git else None
+    git_remote = git("remote", "get-url", "origin") if git else None
+    push_repo = _assignment(push_script, "REPO") if push_script else None
+    push_name = _assignment(push_script, "WANT_NAME") if push_script else None
+    push_branch = _assignment(push_script, "BRANCH") if push_script else None
+    push_remote = _assignment(push_script, "REMOTE") if push_script else None
+    # The helper credential itself is never queried by this frequent collector.
+    push_guards_ok = bool(push_script and all(marker in push_script for marker in
+                          ('[[ "$name" == "$WANT_NAME"', '[[ "$mail" == "$WANT_EMAIL"',
+                           '[[ "${url%.git}" == "$REMOTE"', '[[ "$cred" == "$WANT_NAME"',
+                           '[[ "$branch" == "$BRANCH"')))
+    push_ok = bool(repo_ok and push_script and push_guards_ok and push_repo and push_name and push_branch
+                   and push_remote and os.path.isabs(push_repo)
+                   and os.path.realpath(push_repo) == os.path.realpath(repo)
+                   and git_name and git_name.strip() == push_name
+                   and git_branch and git_branch.strip() == push_branch
+                   and git_remote and git_remote.strip().removesuffix(".git") == push_remote.removesuffix(".git")
+                   and re.search(r'\bpush\s+origin\s+"\$BRANCH"', push_script))
+    card_root = card.get("root") if card_ok else None
+    expanded_card_root = os.path.expanduser(card_root) if isinstance(card_root, str) else None
+    card_repo_ok = bool(repo_ok and expanded_card_root and os.path.isabs(expanded_card_root)
+                        and os.path.realpath(expanded_card_root) == os.path.realpath(repo))
+    graph.source("infra:dqr_repo", bool(push_ok and card_repo_ok), repo,
+                 "DQR card root, repo, Git configuration, and push wrapper do not agree.")
+    if push_ok and card_repo_ok:
+        fact("git_identity", f"{push_name} (repository Git user; credential not rechecked)",
+             "checked", "git-config+dqr-push")
+        if (push_name == "haqzy" and push_branch == "main"
+                and push_remote.removesuffix(".git") == "https://github.com/haqzy/dailyquranreading"):
+            fact("repository", "GitHub haqzy/dailyquranreading · main", "checked", "git-origin+dqr-push")
+            graph.node("workspace:dqr-repo", "workspace", "DQR local repository", "infra:dqr_repo",
+                       kind="Git repository", status="present")
+            graph.node("endpoint:dqr-github-main", "endpoint", "DQR GitHub main", "infra:dqr_repo",
+                       kind="GitHub branch", status="configured")
+            graph.edge("uses_workspace:dqr", "session:DQR", "workspace:dqr-repo", "uses_workspace",
+                       "infra:dqr_repo", "state", "declared repository root",
+                       "Card and push wrapper point to this repo; current pane cwd checked separately",
+                       source_path=card_path)
+            if "tool:dqr-push" in graph.nodes:
+                graph.edge("pushes_to:dqr", "tool:dqr-push", "endpoint:dqr-github-main", "pushes_to",
+                           "infra:dqr_repo", "deployment", "commit and Git push to main",
+                           "Wrapper validates local identity and remote before pushing; push unobserved",
+                           source_path=push_path)
+
+    if media_script_ok and media_link_ok and "tool:dqr-media" in graph.nodes:
+        graph.edge("stages_media:dqr", bound_node, "tool:dqr-media", "stages_media",
+                   "infra:dqr_media", "routing", "incoming image attachment",
+                   "Configured chat media handler passes images to the sanitizer", source_path=bind_script_path)
+        media_repo = _dqr_assignment(media_script, "REPO")
+        media_push = _dqr_assignment(media_script, "PUSH")
+        media_repo_ok = bool("workspace:dqr-repo" in graph.nodes and media_repo and repo
+                             and os.path.isabs(media_repo)
+                             and os.path.realpath(media_repo) == os.path.realpath(repo))
+        media_push_ok = bool("tool:dqr-push" in graph.nodes and push_path and media_push
+                             and os.path.isabs(media_push)
+                             and os.path.realpath(media_push) == os.path.realpath(push_path))
+        if media_repo_ok:
+            graph.edge("writes_asset:dqr", "tool:dqr-media", "workspace:dqr-repo", "writes_asset",
+                       "infra:dqr_media", "state", "sanitized image asset",
+                       "Media script writes a stripped image under the repo; execution unobserved",
+                       source_path=media_path)
+        if media_push_ok:
+            graph.edge("invokes_tool:dqr", "tool:dqr-media", "tool:dqr-push", "invokes_tool",
+                       "infra:dqr_media", "deployment", "commit and push request",
+                       "Media script calls the push wrapper by default after sanitization",
+                       source_path=media_path)
+        if media_repo_ok and media_push_ok and "pushes_to:dqr" in graph.edges:
+            fact("media_publication", "Incoming images are sanitized then auto-pushed by default",
+                 "declared", "imsg-chatbind+dqr-media")
+            approval = card.get("approval") if card_ok else None
+            if isinstance(approval, list) and any("publishing to the live site" in x.lower()
+                                                  for x in approval if isinstance(x, str)):
+                fact("publish_approval", "Mismatch: card asks for live-site approval; media script auto-pushes",
+                     "mismatch", "identity:DQR#approval+dqr-media")
+
+    std = session.get("standard") if isinstance(session.get("standard"), dict) else {}
+    roots = session.get("root_evidence") if isinstance(session.get("root_evidence"), dict) else {}
+    if std.get("present") is False and roots.get("observed_cwd_within_card") is False:
+        fact("runtime_scope", "Observed pane outside card root; DQR absent from session standard",
+             "checked", "tmux+identity_cards+sessions_conf")
+    elif std.get("present") is False:
+        fact("runtime_scope", "DQR absent from session standard; pane placement unknown or separate",
+             "checked", "sessions_conf+tmux")
+
+    vercel = read_json(repo / ".vercel/project.json", 16_000) if repo else None
+    vercel_ok = bool(vercel and vercel.get("projectName") == "dailyquranreading"
+                     and isinstance(vercel.get("orgId"), str) and vercel["orgId"]
+                     and isinstance(vercel.get("projectId"), str) and vercel["projectId"]
+                     and push_script and "Vercel GitHub" in push_script
+                     and "dailyquranreading.com" in push_script)
+    graph.source("infra:dqr_deploy", vercel_ok, repo / ".vercel/project.json" if repo else None,
+                 "DQR Vercel project link or declared GitHub deployment route unavailable.")
+    if vercel_ok and "endpoint:dqr-github-main" in graph.nodes:
+        graph.node("endpoint:dqr-production-site", "endpoint", "dailyquranreading.com production",
+                   "infra:dqr_deploy", kind="Vercel site", status="configured")
+        graph.edge("triggers_deploy:dqr", "endpoint:dqr-github-main", "endpoint:dqr-production-site",
+                   "triggers_deploy", "infra:dqr_deploy", "deployment", "GitHub main commit to Vercel build",
+                   "Wrapper declares the GitHub integration; a release is not observed",
+                   source_path=repo / ".vercel/project.json")
+        fact("deployment", "Vercel project linked locally; production release unobserved",
+             "declared", "vercel-project+dqr-push")
+
+    if facts:
+        session["scope"] = {"facts": facts}
+
+
 def enrich(raw: dict, env: dict[str, str] | None = None, runner=run_text) -> dict:
     graph = Graph(raw)
     env = os.environ if env is None else env
@@ -634,6 +897,7 @@ def enrich(raw: dict, env: dict[str, str] | None = None, runner=run_text) -> dic
     focus_sid, root, outbox = _focus_files(graph, env)
     map_port = _jobs(graph, env, runner, focus_sid, root, outbox, by_port, listeners)
     _tailscale(graph, env, runner, by_port, map_port)
+    _dqr_scope(graph, env, runner)
     return graph.finish()
 
 

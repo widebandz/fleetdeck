@@ -55,6 +55,44 @@ def snapshot():
 
 
 class ValidationTests(unittest.TestCase):
+    def test_dqr_scope_is_bounded_and_rejects_private_facts(self):
+        value = snapshot()
+        dqr = node("session:DQR", "session", "DQR", "host:sample", refs=["tmux", "infra:dqr_identity"],
+                   responsibilities={"items": ["Hold bound chat replies."],
+                                     "source": "infra:dqr_identity", "as_of": TIME, "status": "declared"},
+                   scope={"facts": [{"key": "chat_binding", "value": "DQR group chat configured; exact ID hidden",
+                                      "evidence": "declared", "source": "chatbind+DQR-card", "as_of": TIME,
+                                      "private_note": "+15555550103"}]})
+        value["nodes"].append(dqr)
+        value["nodes"].append(node("chat:dqr-approval", "chat", "DQR private approval chat",
+                                   refs=["infra:dqr_chatbind"], observed=None))
+        value["edges"].append({"id": "approves_draft:dqr", "from": "chat:dqr-approval", "to": "session:DQR",
+                               "type": "approves_draft", "evidence": "declared", "source": "infra:dqr_chatbind",
+                               "layer": "routing", "payload": "exact operator draft command",
+                               "display": "Configured approval command; delivery unobserved",
+                               "freshness": {"as_of": TIME, "status": "configured-only"}})
+        clean = R.validate_snapshot(value)
+        projected = next(n for n in clean["nodes"] if n["id"] == "session:DQR")
+        self.assertEqual(projected["responsibilities"]["source"], "infra:dqr_identity")
+        self.assertEqual(projected["scope"]["facts"][0]["key"], "chat_binding")
+        self.assertNotIn("private_note", json.dumps(clean))
+        self.assertEqual(clean["edges"][-1]["type"], "approves_draft")
+        for private in ("chat 19", "imsg:chat-19", "+15555550103", "+1 (555) 555-0103",
+                        "zayed@example.invalid", "vck_0123456789abcdefghijklmnop", "/tmp/private"):
+            bad = copy.deepcopy(value)
+            bad["nodes"][-2]["scope"]["facts"][0]["value"] = private
+            with self.subTest(private=private), self.assertRaises(R.SnapshotError):
+                R.validate_snapshot(bad)
+        for patch in ({"key": "unknown"}, {"evidence": "observed"}, {"source": ""}, {"as_of": ""}):
+            bad = copy.deepcopy(value)
+            bad["nodes"][-2]["scope"]["facts"][0].update(patch)
+            with self.subTest(patch=patch), self.assertRaises(R.SnapshotError):
+                R.validate_snapshot(bad)
+        bad = copy.deepcopy(value)
+        bad["nodes"][-2]["scope"]["facts"].append(copy.deepcopy(bad["nodes"][-2]["scope"]["facts"][0]))
+        with self.assertRaises(R.SnapshotError):
+            R.validate_snapshot(bad)
+
     def test_registry_binding_is_projected_without_private_extra_fields(self):
         value = snapshot()
         value["nodes"][1]["registry"] = {"agent_id": "agent-moss", "state": "planned",

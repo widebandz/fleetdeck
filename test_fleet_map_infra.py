@@ -109,6 +109,148 @@ class InfrastructureTests(unittest.TestCase):
                         "private.invalid:9000": {"Handlers": {"/": {"Proxy": "http://10.0.0.1:8783"}}}}})
         return None
 
+    def _dqr_fixture(self):
+        raw = snapshot()
+        raw["nodes"].extend([
+            {"id": "session:DQR", "type": "session", "label": "DQR", "parent_id": "host:sample",
+             "declared": False, "observed": True, "source_refs": ["tmux", "identity_cards"],
+             "observed_at": TIME, "standard": {"present": False},
+             "root_evidence": {"observed_cwd_within_card": False, "source_refs": ["tmux", "identity_cards"],
+                               "as_of": TIME}},
+            {"id": "chat:bound-DQR", "type": "chat", "label": "Bound chat → DQR", "parent_id": None,
+             "declared": True, "observed": None, "source_refs": ["chatbind"], "observed_at": None},
+        ])
+        for tool in ("dqr-media", "dqr-push"):
+            raw["nodes"].append({"id": f"tool:{tool}", "type": "tool", "label": tool,
+                                 "parent_id": None, "declared": True, "observed": None,
+                                 "source_refs": ["identity:DQR#tools"], "observed_at": None})
+        raw["edges"].append({"id": "chat_routes_to:dqr", "from": "chat:bound-DQR", "to": "session:DQR",
+                             "type": "chat_routes_to", "evidence": "declared", "source": "chatbind",
+                             "display": "Bound chat ownership", "freshness": {"as_of": TIME,
+                                                                          "status": "configured-only"}})
+        repo = self.base / "dailyquranreading"
+        (repo / ".git").mkdir(parents=True)
+        (repo / ".vercel").mkdir()
+        (repo / ".vercel/project.json").write_text(json.dumps({"projectName": "dailyquranreading",
+                                                                "orgId": "test-org", "projectId": "test-project"}))
+        card = self.memory / "DQR.md"
+        card.write_text(f"---\nsession: DQR\nrole: assigned\nroot: {repo}\n"
+                        "owner: dailyquranreading.com — Imam El engagement\n"
+                        "chat_binding: imsg:chat-19\n"
+                        "approval:\n  - publishing to the live site\n---\n"
+                        "## Responsibilities\n\n- Hold replies to chat 19 for approval.\n"
+                        "- Sanitize site images.\n- Keep the inbox healthy.\n")
+        bind = self.base / "dqr-chatbind.json"
+        bind.write_text(json.dumps({"operator": "+15555550101",
+                                    "operator_aliases": ["+15555550102"], "operator_chat_id": 1,
+                                    "bound": [{"session": "DQR", "chat_id": 19, "guid": "fake-guid-private",
+                                               "label": "DQR — Zayed + Imam El (dailyquranreading.com)",
+                                               "participants": ["+15555550101", "+15555550102", "+15555550103"],
+                                               "approval_chat_id": 1,
+                                               "external_mode": "private-draft-and-hold", "media": True},
+                                              {"session": "operator", "chat_id": 1,
+                                               "participants": ["+15555550101"]}]}))
+        media = self.base / "dqr-media"
+        push = self.base / "dqr-push"
+        chat_script = self.base / "imsg-chatbind-dqr"
+        chat_script.write_text(f'DQR_MEDIA  = "{media}"\n'
+                               'def private_draft_hold(): pass\ndef hold_draft(): pass\n'
+                               'def handle_approval(): pass\ndef validate_bound_target(): pass\n'
+                               'stage_images(incoming\nsend_to_bound_chat\n'
+                               'if is_operator(sender) and chat_id == OPERATOR_CHAT_ID:\n'
+                               'pend.get("approval_chat_id") == chat_id\n'
+                               'live.get("guid") != b.get("guid")\n'
+                               'expected and actual != expected\n'
+                               'vck_0123456789abcdefghijklmnop\n')
+        media.write_text(f'REPO="{repo}"\nPUSH={push}\nDEST_REL="public/images"\n'
+                         'push=1\nif [[ "$push" == "1" ]]; then\n  "$PUSH"\nfi\n'
+                         '"$EXIFTOOL" -all= "$dest"\n"$EXIFTOOL" -gps:all "$dest"\n')
+        push.write_text(f'REPO="{repo}"\nWANT_NAME="haqzy"\nBRANCH="main"\n'
+                        'REMOTE="https://github.com/haqzy/dailyquranreading"\n'
+                        '[[ "$name" == "$WANT_NAME" ]]\n'
+                        '[[ "$mail" == "$WANT_EMAIL" ]]\n'
+                        '[[ "${url%.git}" == "$REMOTE" ]]\n'
+                        '[[ "$cred" == "$WANT_NAME" ]]\n'
+                        '[[ "$branch" == "$BRANCH" ]]\n'
+                        'git push origin "$BRANCH"\n# Vercel GitHub deploys dailyquranreading.com\n')
+        env = dict(self.env, FLEETDECK_FLEET_DQR_CARD=str(card),
+                   FLEETDECK_FLEET_DQR_CHATBIND=str(bind),
+                   FLEETDECK_FLEET_DQR_CHATBIND_SCRIPT=str(chat_script),
+                   FLEETDECK_FLEET_DQR_MEDIA_SCRIPT=str(media),
+                   FLEETDECK_FLEET_DQR_PUSH_SCRIPT=str(push),
+                   FLEETDECK_FLEET_DQR_REPO=str(repo),
+                   FLEETDECK_FLEET_DQR_GIT_CLI="/fake/git")
+        def runner(argv, **kwargs):
+            if argv[0] == "/fake/git":
+                if argv[-2:] == ["config", "user.name"]: return "haqzy\n"
+                if argv[-2:] == ["branch", "--show-current"]: return "main\n"
+                if argv[-3:] == ["remote", "get-url", "origin"]:
+                    return "https://github.com/haqzy/dailyquranreading\n"
+            return self.runner(argv, **kwargs)
+        return raw, env, runner, card, bind, media, push
+
+    def test_dqr_scope_projects_separate_approval_and_media_pipelines_without_private_ids(self):
+        raw, env, runner, *_ = self._dqr_fixture()
+        clean = R.validate_snapshot(I.enrich(raw, env, runner))
+        dqr = next(n for n in clean["nodes"] if n["id"] == "session:DQR")
+        facts = {item["key"]: item for item in dqr["scope"]["facts"]}
+        self.assertEqual(set(facts), {"engagement_owner", "operator", "git_identity", "repository",
+                                      "chat_binding", "participants", "reply_approval",
+                                      "media_publication", "publish_approval", "runtime_scope", "deployment"})
+        self.assertEqual(facts["publish_approval"]["evidence"], "mismatch")
+        self.assertIn("auto-pushes", facts["publish_approval"]["value"])
+        self.assertEqual(dqr["responsibilities"]["source"], "infra:dqr_identity")
+        self.assertIn("bound chat", dqr["responsibilities"]["items"][0])
+        edges = {e["type"]: e for e in clean["edges"]}
+        self.assertTrue({"holds_draft", "approves_draft", "releases_reply", "stages_media",
+                         "writes_asset", "invokes_tool", "pushes_to", "triggers_deploy"} <= set(edges))
+        self.assertEqual(edges["approves_draft"]["from"], "chat:dqr-approval")
+        self.assertEqual(edges["stages_media"]["to"], "tool:dqr-media")
+        self.assertEqual(edges["triggers_deploy"]["evidence"], "declared")
+        self.assertIn("not observed", edges["triggers_deploy"]["display"])
+        serialized = json.dumps(clean)
+        for private in ("chat-19", "fake-guid-private", "+15555550101", "+15555550102",
+                        "+15555550103", "vck_0123456789abcdefghijklmnop", str(self.base)):
+            self.assertNotIn(private, serialized)
+
+    def test_dqr_mismatches_omit_unsupported_pipes(self):
+        raw, env, runner, card, bind, media, push = self._dqr_fixture()
+        duplicate = json.loads(bind.read_text())
+        duplicate["bound"].append({"session": "other", "chat_id": 19})
+        bind.write_text(json.dumps(duplicate))
+        clean = R.validate_snapshot(I.enrich(raw, env, runner))
+        self.assertFalse({"holds_draft", "approves_draft", "releases_reply", "stages_media"}
+                         & {e["type"] for e in clean["edges"]})
+        duplicate["bound"].pop()
+        bind.write_text(json.dumps(duplicate))
+        card.write_text(card.read_text().replace("imsg:chat-19", "imsg:chat-23"))
+        clean = R.validate_snapshot(I.enrich(raw, env, runner))
+        self.assertFalse({"holds_draft", "approves_draft", "releases_reply", "stages_media"}
+                         & {e["type"] for e in clean["edges"]})
+        self.assertNotIn("chat_binding", {f["key"] for f in next(n for n in clean["nodes"]
+                                                   if n["id"] == "session:DQR")["scope"]["facts"]})
+        card.write_text(card.read_text().replace("imsg:chat-23", "imsg:chat-19"))
+        media.unlink()
+        clean = R.validate_snapshot(I.enrich(raw, env, runner))
+        self.assertFalse({"stages_media", "writes_asset", "invokes_tool"}
+                         & {e["type"] for e in clean["edges"]})
+        self.assertNotIn("publish_approval", {f["key"] for f in next(n for n in clean["nodes"]
+                                                      if n["id"] == "session:DQR")["scope"]["facts"]})
+        media.write_text('push=1\nif [[ "$push" == "1" ]]; then "$PUSH"; fi\nexiftool\nDEST_REL="public/images"\n')
+        push.write_text(push.read_text().replace('WANT_NAME="haqzy"', 'WANT_NAME="other"'))
+        clean = R.validate_snapshot(I.enrich(raw, env, runner))
+        self.assertFalse({"pushes_to", "triggers_deploy"} & {e["type"] for e in clean["edges"]})
+
+    def test_dqr_missing_vercel_metadata_does_not_assert_production_route(self):
+        raw, env, runner, *_ = self._dqr_fixture()
+        (Path(env["FLEETDECK_FLEET_DQR_REPO"]) / ".vercel/project.json").unlink()
+        clean = R.validate_snapshot(I.enrich(raw, env, runner))
+        types = {e["type"] for e in clean["edges"]}
+        self.assertIn("pushes_to", types)
+        self.assertNotIn("triggers_deploy", types)
+        self.assertNotIn("deployment", {f["key"] for f in next(n for n in clean["nodes"]
+                                                  if n["id"] == "session:DQR")["scope"]["facts"]})
+
     def test_evidenced_layers_and_privacy(self):
         clean = R.validate_snapshot(I.enrich(snapshot(), self.env, self.runner))
         nodes = {n["id"]: n for n in clean["nodes"]}
