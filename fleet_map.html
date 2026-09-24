@@ -297,6 +297,10 @@
       var left=a.x<b.x,x1=left?a.x+a.w-18:a.x+18,x2=left?b.x+18:b.x+b.w-18,top=Math.min(a.y,b.y)-32;
       return {d:"M"+x1+" "+a.y+" V"+top+" H"+x2+" V"+b.y,x:(x1+x2)/2,y:top};
     }
+    if(Math.abs(a.x-b.x)<80){
+      var rail=Math.min(a.x,b.x)-46,ax=a.x,bx=b.x,ay=centerY(a),by=centerY(b);
+      return {d:"M"+ax+" "+ay+" H"+rail+" V"+by+" H"+bx,x:rail,y:(ay+by)/2};
+    }
     var sourceLeft=a.x>b.x,x1=sourceLeft?a.x:a.x+a.w,x2=sourceLeft?b.x+b.w:b.x;
     var lane=e.type==="describes_session"?0:e.type==="chat_routes_to"?-17:e.type==="router_addressable"?-24:e.type==="router_agent_pane_ready"?25:0;
     var y1=centerY(a)+lane,y2=centerY(b)+lane,m=(x1+x2)/2;
