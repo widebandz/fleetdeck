@@ -51,7 +51,10 @@ class InfrastructureTests(unittest.TestCase):
         self.memory.mkdir(parents=True)
         (self.memory / "trace.md").write_text(
             f"---\nsession: trace\nroot: {self.root}\nrouting_out:\n  - {self.outbox}\n"
-            "chat_binding: imsg:chat-1\n---\nPrivate card body\n")
+            "chat_binding: imsg:chat-1\n---\n## Responsibilities\n\n"
+            "- Interpret requests and route the work.\n"
+            "- Carry results back to chat 1.\n"
+            "- Write a concise outbox note.\n\n## Not this session\n\n- Other work.\n")
         self.services = self.base / "services.json"
         self.services.write_text(json.dumps({"services": [
             {"id": "chat", "name": "Chat API", "port": 8783, "group": "fleet"},
@@ -117,6 +120,10 @@ class InfrastructureTests(unittest.TestCase):
         self.assertNotIn("service:unsafe", nodes)
         self.assertIn(("sends_chat", "job:trace-outbox", "chat:bound-trace"), edges)
         self.assertIn(("handles_bound_chat", "job:chatbind", "chat:bound-trace"), edges)
+        duties = nodes["session:trace"]["responsibilities"]
+        self.assertEqual(duties["source"], "infra:trace_identity")
+        self.assertEqual(len(duties["items"]), 3)
+        self.assertEqual(duties["items"][1], "Carry results back to bound chat.")
         self.assertIn(("launches", "job:trace-keeper", "session:trace"), edges)
         self.assertIn(("proxy_routes_to", "endpoint:tailnet-map", "service:fleet-map-local"), edges)
         self.assertIn(("schedules_job", "host:sample", "job:trace-outbox"), edges)
@@ -146,6 +153,21 @@ class InfrastructureTests(unittest.TestCase):
         clean = R.validate_snapshot(I.enrich(snapshot(), self.env, self.runner))
         self.assertFalse(any(e["type"] == "handles_bound_chat" for e in clean["edges"]))
 
+    def test_outbound_target_must_match_daemon_binding(self):
+        self.chatbind_config.write_text(json.dumps({"bound": [{"chat_id": 2, "session": "trace"}]}))
+        clean = R.validate_snapshot(I.enrich(snapshot(), self.env, self.runner))
+        self.assertTrue(any(e["type"] == "handles_bound_chat" for e in clean["edges"]))
+        self.assertFalse(any(e["type"] == "sends_chat" for e in clean["edges"]))
+
+    def test_unsafe_responsibility_section_is_omitted(self):
+        card = self.memory / "trace.md"
+        card.write_text(card.read_text().replace("Write a concise outbox note.",
+                                                 f"Read {self.base / 'private.txt'}."))
+        clean = R.validate_snapshot(I.enrich(snapshot(), self.env, self.runner))
+        session = next(n for n in clean["nodes"] if n["id"] == "session:trace")
+        self.assertNotIn("responsibilities", session)
+        self.assertNotIn(str(self.base), json.dumps(clean))
+
     def test_optional_tailnet_outage_keeps_other_evidence(self):
         def outage(argv, **kwargs):
             return None if argv[0] == "/fake/tailscale" else self.runner(argv, **kwargs)
@@ -161,6 +183,16 @@ class InfrastructureTests(unittest.TestCase):
             bad = copy.deepcopy(clean)
             bad["edges"][-1].update(patch)
             with self.subTest(patch=patch), self.assertRaises(R.SnapshotError):
+                R.validate_snapshot(bad)
+        for unsafe in ({"items": ["Read /private/secret"], "source": "infra:trace_identity",
+                        "as_of": TIME, "status": "declared"},
+                       {"items": ["API_KEY=veryprivate"], "source": "infra:trace_identity",
+                        "as_of": TIME, "status": "declared"},
+                       {"items": ["Safe"], "source": "unknown", "as_of": TIME,
+                        "status": "declared"}):
+            bad = copy.deepcopy(clean)
+            next(n for n in bad["nodes"] if n["id"] == "session:trace")["responsibilities"] = unsafe
+            with self.assertRaises(R.SnapshotError):
                 R.validate_snapshot(bad)
 
     def test_optional_stage_reads_stdin_and_failure_marks_only_infra(self):
@@ -198,6 +230,10 @@ class InfrastructureTests(unittest.TestCase):
         self.assertTrue(endpoint["stale"])
         self.assertTrue(pipe["stale"])
         self.assertEqual(pipe["freshness"]["status"], "source_unavailable")
+        session = next(n for n in result["nodes"] if n["id"] == "session:trace")
+        self.assertEqual(session["last_known_responsibilities"]["items"][1],
+                         "Carry results back to bound chat.")
+        self.assertIn("responsibilities", session["stale_fields"])
 
 
 if __name__ == "__main__":

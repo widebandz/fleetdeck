@@ -39,7 +39,8 @@ _PRIVATE_VALUE = re.compile(
     r"\b(?:imsg:)?chat[\s:-]*\d+\b|(?:/(?:Users|home|tmp|private|var|etc)/|~/|file://)|"
     r"(?<![A-Za-z0-9])/[A-Za-z0-9._-]+(?:/|$)|[A-Za-z]:\\|"
     r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b|"
-    r"\b(?:sk-[A-Za-z0-9]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b)", re.I)
+    r"\b(?:sk-[A-Za-z0-9]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b|"
+    r"\b(?:api[_ -]?key|access[_ -]?token|secret|password|authorization)\s*[:=]\s*[^\s,;]+)", re.I)
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:._%#-]{0,159}$")
 
 
@@ -185,6 +186,23 @@ def validate_snapshot(raw):
             root_evidence["source_refs"] = [_safe_text(ref, limit=100) for ref in root_refs]
         if root_evidence:
             node["root_evidence"] = root_evidence
+        if "responsibilities" in item:
+            if node_type != "session" or not isinstance(item["responsibilities"], dict):
+                raise SnapshotError("invalid responsibilities")
+            duties = item["responsibilities"]
+            entries = duties.get("items")
+            if not isinstance(entries, list) or not 1 <= len(entries) <= 3:
+                raise SnapshotError("invalid responsibilities")
+            entries = [_safe_text(entry, limit=140) for entry in entries]
+            if any(not entry for entry in entries):
+                raise SnapshotError("invalid responsibilities")
+            if duties.get("source") != "infra:trace_identity" or duties.get("status") != "declared":
+                raise SnapshotError("invalid responsibilities source")
+            as_of = _safe_text(duties.get("as_of"), limit=40)
+            if not as_of:
+                raise SnapshotError("invalid responsibilities time")
+            node["responsibilities"] = {"items": entries, "source": "infra:trace_identity",
+                                        "as_of": as_of, "status": "declared"}
         if node_type in ("session", "agent"):
             registry = _project_map(item.get("registry"),
                                     text_keys=("agent_id", "host_id", "session_name", "state"))
@@ -565,6 +583,9 @@ def _retain_unavailable_sources(current, previous, unavailable):
             if "registry" in unavailable and "registry" in old:
                 now["last_known_registry"] = copy.deepcopy(old["registry"])
                 now.setdefault("stale_fields", []).append("registry")
+            if ({"infra", "infra:trace_identity"} & unavailable) and "responsibilities" in old:
+                now["last_known_responsibilities"] = copy.deepcopy(old["responsibilities"])
+                now.setdefault("stale_fields", []).append("responsibilities")
             if "sessions_conf" in unavailable and now["declared"] is None and old["declared"] is not None:
                 now["last_known_declared"] = old["declared"]
             if "tmux" in unavailable and old["observed"] is not None:

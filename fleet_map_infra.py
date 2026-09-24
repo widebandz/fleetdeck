@@ -30,7 +30,9 @@ SLUG = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,39}$")
 PRIVATE = re.compile(r"(?:\b(?:\d{1,3}\.){3}\d{1,3}\b|\+?\d{10,}\b|"
                      r"\b(?:imsg:)?chat[\s:-]*\d+\b|(?:/(?:Users|home|tmp|private|var|etc)/|~/|file://)|"
                      r"(?<![A-Za-z0-9])/[A-Za-z0-9._-]+(?:/|$)|"
-                     r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b)", re.I)
+                     r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b|"
+                     r"\b(?:sk-[A-Za-z0-9]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b|"
+                     r"\b(?:api[_ -]?key|access[_ -]?token|secret|password|authorization)\s*[:=]\s*[^\s,;]+)", re.I)
 SERVICE_GROUPS = {"fleet", "apps", "models", "data"}
 SERVICE_KINDS = {"app", "api", "web"}
 
@@ -303,6 +305,30 @@ def _card_fields(raw: str) -> dict[str, Any]:
     return fields
 
 
+def _responsibilities(raw: str) -> list[str] | None:
+    lines = raw.splitlines()
+    try:
+        start = lines.index("## Responsibilities") + 1
+    except ValueError:
+        return None
+    bullets = []
+    for line in lines[start:]:
+        if line.startswith("## "):
+            break
+        if not line.strip():
+            continue
+        if not line.startswith("- "):
+            # Wrapped or prose entries need human review, so omit the section.
+            return None
+        bullet = re.sub(r"\bchat\s*[-:]?\s*\d+\b", "bound chat", line[2:].strip(), flags=re.I)
+        if safe_text(bullet, 140) is None:
+            return None
+        bullets.append(bullet)
+        if len(bullets) > 3:
+            return None
+    return bullets or None
+
+
 def _focus_files(graph: Graph, env: dict[str, str]) -> tuple[str | None, Path | None, Path | None]:
     focus = env.get("FLEETDECK_FLEET_FOCUS_SESSION", "trace")
     if not NAME.fullmatch(focus):
@@ -324,6 +350,16 @@ def _focus_files(graph: Graph, env: dict[str, str]) -> tuple[str | None, Path | 
     graph.source("infra:trace_identity", card_text is not None, card_path,
                  "Focus identity card unavailable; outbox route is unknown.")
     card = _card_fields(card_text) if card_text is not None else {}
+    if card_text is not None and card.get("session") == focus:
+        duties = _responsibilities(card_text)
+        if duties:
+            session_node["responsibilities"] = {"items": duties, "source": "infra:trace_identity",
+                                                "as_of": graph.at, "status": "declared"}
+            if "infra:trace_identity" not in session_node["source_refs"]:
+                session_node["source_refs"].append("infra:trace_identity")
+        else:
+            graph.unknown("unsafe_metadata", "infra:trace_identity",
+                          "Focus responsibilities could not be safely projected.")
     if root is not None and root.is_dir() and card.get("session") == focus:
         card_root = card.get("root")
         if isinstance(card_root, str) and os.path.realpath(os.path.expanduser(card_root)) != os.path.realpath(root):
@@ -379,7 +415,7 @@ def _job_status(label: str, listing: str | None) -> str:
 
 
 def _chatbind_link(graph: Graph, env: dict[str, str], config: dict,
-                   script_path: Path, job_id: str, focus: str, focus_sid: str | None):
+                   script_path: Path, job_id: str, focus: str, focus_sid: str | None) -> int | None:
     if not focus_sid or not script_path.is_absolute():
         return
     script = read_text(script_path, 128_000)
@@ -408,11 +444,14 @@ def _chatbind_link(graph: Graph, env: dict[str, str], config: dict,
             e.get("to") == focus_sid and e.get("source") == "chatbind"
             for e in graph.data["edges"] if isinstance(e, dict)):
         return
+    if sum(isinstance(x, dict) and x.get("chat_id") == matches[0]["chat_id"] for x in entries) != 1:
+        return
     graph.edge(f"handles_bound_chat:{job_id}:{target}", job_id, target,
                "handles_bound_chat", "infra:launchagents", "routing",
                "incoming bound chat events",
                "Daemon config assigns this bound chat to the session; delivery is unobserved",
                source_path=config_path)
+    return matches[0]["chat_id"]
 
 
 def _jobs(graph: Graph, env: dict[str, str], runner, focus_sid: str | None,
@@ -431,13 +470,14 @@ def _jobs(graph: Graph, env: dict[str, str], runner, focus_sid: str | None,
     graph.source("infra:launchctl", listing is not None, None,
                  "LaunchAgent load status unavailable; job registration is shown from configuration only.")
     specs = (
+        ("ai.wideband.imsg.chatbind", "imsg-chatbind", "Chat binding service", "chatbind"),
         (f"com.wideband.{focus}-outbox", f"{focus}-outbox-send", f"{focus} outbox sender", "outbox"),
         (f"com.wideband.{focus}-session", f"{focus}-session-keep", f"{focus} session keeper", "keeper"),
-        ("ai.wideband.imsg.chatbind", "imsg-chatbind", "Chat binding service", "chatbind"),
         ("com.wideband.fleet-map-local", "portal_server.py", "Fleet map preview job", "map"),
     )
     found = 0
     map_port = None
+    bound_chat_id = None
     host = _local_host(graph)
     for label, executable, safe_label, role in specs:
         path = home / (label + ".plist")
@@ -468,7 +508,7 @@ def _jobs(graph: Graph, env: dict[str, str], runner, focus_sid: str | None,
                        "Host has this LaunchAgent declaration; load status is shown separately",
                        source_path=path)
         if role == "chatbind":
-            _chatbind_link(graph, env, config, executable_path, ident, focus, focus_sid)
+            bound_chat_id = _chatbind_link(graph, env, config, executable_path, ident, focus, focus_sid)
             continue
         script_path = Path(program)
         script = read_text(script_path, 64_000) if script_path.is_absolute() else None
@@ -500,7 +540,8 @@ def _jobs(graph: Graph, env: dict[str, str], runner, focus_sid: str | None,
                 chat_id = _assignment(script, "CHAT_ID")
                 if (target in graph.nodes and sends and isinstance(binding, str)
                         and re.fullmatch(r"imsg:chat-([0-9]+)", binding)
-                        and chat_id == binding.rsplit("-", 1)[1]):
+                        and chat_id == binding.rsplit("-", 1)[1]
+                        and chat_id == str(bound_chat_id)):
                     graph.edge(f"sends_chat:{ident}:{target}", ident, target, "sends_chat",
                                "infra:launchagents", "routing", "queued text messages",
                                "Sender and identity card target the bound channel; delivery is unobserved",
