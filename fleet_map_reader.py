@@ -7,6 +7,7 @@ map can show and retains the last valid snapshot in memory if collection fails.
 
 import copy
 import datetime as dt
+import ipaddress
 import json
 import os
 import re
@@ -17,6 +18,8 @@ import time
 
 SCHEMA = "agent-fleet.snapshot.v1"
 COLLECTOR_ENV = "FLEETDECK_FLEET_SNAPSHOT"
+REGISTRY_ENV = "FLEETDECK_FLEET_REGISTRY"
+HOST_ID_ENV = "FLEETDECK_FLEET_HOST_ID"
 DEFAULT_COLLECTOR = "~/bin/tm-fleet-snapshot"
 MAX_STDOUT = 2 * 1024 * 1024
 MAX_STDERR = 4096
@@ -169,6 +172,13 @@ def validate_snapshot(raw):
             root_evidence["source_refs"] = [_safe_text(ref, limit=100) for ref in root_refs]
         if root_evidence:
             node["root_evidence"] = root_evidence
+        if node_type in ("session", "agent"):
+            registry = _project_map(item.get("registry"),
+                                    text_keys=("agent_id", "host_id", "session_name", "state"))
+            if registry:
+                if registry.get("state") not in ("planned", "verified", "retired"):
+                    raise SnapshotError("invalid registry binding state")
+                node["registry"] = registry
         nodes.append(node)
     for node in nodes:
         if node["parent_id"] is not None and node["parent_id"] not in ids:
@@ -191,7 +201,7 @@ def validate_snapshot(raw):
                              "uses_workspace", "reads_file", "executes_file",
                              "chat_routes_to", "describes_session", "bound_chat",
                              "router_addressable", "router_agent_pane_ready",
-                             "uses", "reads"}:
+                             "planned_binding", "verified_binding", "uses", "reads"}:
             raise SnapshotError("unknown edge type")
         freshness = _project_map(item.get("freshness"),
                                  text_keys=("as_of", "source_mtime", "status"))
@@ -208,7 +218,8 @@ def validate_snapshot(raw):
             "display": _safe_text(item.get("display"), limit=140),
             "freshness": freshness,
         }
-        if edge["evidence"] not in {"declared", "observed", "computed"}:
+        if edge["evidence"] not in {"declared", "observed", "computed",
+                                    "approved_registry_binding"}:
             raise SnapshotError("invalid evidence")
         edges.append(edge)
 
@@ -243,26 +254,43 @@ def validate_snapshot(raw):
             "sources": sources, "unknowns": unknowns}
 
 
-def _collector_output(executable):
-    """Read bounded stdout/stderr from fixed argv without a shell or temp file."""
-    argv = [os.path.expanduser(executable), "--host-id", "local", "--json"]
+def _bounded_json_process(argv, *, input_bytes=None, source="source"):
+    """Run a fixed argv with bounded pipes, no shell, and no private temp file."""
+    if input_bytes is not None and len(input_bytes) > MAX_STDOUT:
+        raise SnapshotError("source input exceeded limit")
     try:
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                stdin=subprocess.DEVNULL, close_fds=True)
+                                stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
+                                close_fds=True)
     except OSError as exc:
-        raise SnapshotError("collector unavailable") from exc
+        raise SnapshotError(source + " unavailable") from exc
     sel = selectors.DefaultSelector()
     chunks = {"out": bytearray(), "err": bytearray()}
+    sent = 0
     deadline = time.monotonic() + TIMEOUT
     try:
         sel.register(proc.stdout, selectors.EVENT_READ, "out")
         sel.register(proc.stderr, selectors.EVENT_READ, "err")
+        if input_bytes is not None:
+            os.set_blocking(proc.stdin.fileno(), False)
+            sel.register(proc.stdin, selectors.EVENT_WRITE, "in")
         while sel.get_map():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise SnapshotError("collector timed out")
+                raise SnapshotError(source + " timed out")
             for key, _ in sel.select(remaining):
                 stream = key.fileobj
+                if key.data == "in":
+                    try:
+                        sent += os.write(stream.fileno(), input_bytes[sent:sent + 65536])
+                    except BlockingIOError:
+                        continue
+                    except BrokenPipeError:
+                        sent = len(input_bytes)
+                    if sent >= len(input_bytes):
+                        sel.unregister(stream)
+                        stream.close()
+                    continue
                 data = os.read(stream.fileno(), 65536)
                 if not data:
                     sel.unregister(stream)
@@ -270,31 +298,72 @@ def _collector_output(executable):
                 target = chunks[key.data]
                 target.extend(data)
                 if len(target) > (MAX_STDOUT if key.data == "out" else MAX_STDERR):
-                    raise SnapshotError("collector output exceeded limit")
+                    raise SnapshotError(source + " output exceeded limit")
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise SnapshotError("collector timed out")
+            raise SnapshotError(source + " timed out")
         try:
             exit_code = proc.wait(timeout=remaining)
         except subprocess.TimeoutExpired as exc:
-            raise SnapshotError("collector timed out") from exc
+            raise SnapshotError(source + " timed out") from exc
         if exit_code != 0:
-            raise SnapshotError("collector failed")
+            raise SnapshotError(source + " failed")
         try:
             return json.loads(chunks["out"].decode("utf-8"))
         except (UnicodeError, json.JSONDecodeError) as exc:
-            raise SnapshotError("collector returned invalid JSON") from exc
+            raise SnapshotError(source + " returned invalid JSON") from exc
     finally:
         sel.close()
+        if proc.stdin and not proc.stdin.closed:
+            proc.stdin.close()
         if proc.poll() is None:
             proc.kill()
         proc.wait()
+        proc.stdout.close()
+        proc.stderr.close()
+
+
+def _collector_output(executable):
+    """Read metadata-only collector output using its fixed command contract."""
+    host_id = os.environ.get(HOST_ID_ENV) or "local"
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,39}", host_id):
+        raise SnapshotError("invalid fleet host ID")
+    try:
+        ipaddress.ip_address(host_id)
+    except ValueError:
+        pass
+    else:
+        raise SnapshotError("fleet host ID cannot be an address")
+    return _bounded_json_process([os.path.expanduser(executable), "--host-id", host_id, "--json"],
+                                 source="collector")
+
+
+def _collect_joined_snapshot():
+    """Join private registry facts through its CLI, retaining live graph on failure."""
+    raw = _collector_output(os.environ.get(COLLECTOR_ENV) or DEFAULT_COLLECTOR)
+    registry_executable = os.environ.get(REGISTRY_ENV)
+    if not registry_executable:
+        return raw
+    if not os.path.isabs(registry_executable):
+        raise SnapshotError("registry executable must be an absolute path")
+    try:
+        payload = json.dumps(raw, separators=(",", ":")).encode("utf-8")
+        return _bounded_json_process([registry_executable, "join", "--snapshot", "-", "--json"],
+                                     input_bytes=payload, source="registry")
+    except (SnapshotError, OSError, ValueError, TypeError):
+        raw = copy.deepcopy(raw)
+        raw.setdefault("sources", []).append({"id": "registry", "status": "unavailable",
+                                               "as_of": _utc_now()})
+        raw.setdefault("unknowns", []).append({"id": "registry", "kind": "source_unavailable",
+                                                "source": "registry", "as_of": _utc_now(),
+                                                "detail": "Registry join unavailable."})
+        raw.setdefault("summary", {})["source_health"] = "degraded"
+        return raw
 
 
 class FleetMapCache:
     def __init__(self, collector=None, clock=None):
-        self.collector = collector or (lambda: _collector_output(
-            os.environ.get(COLLECTOR_ENV) or DEFAULT_COLLECTOR))
+        self.collector = collector or _collect_joined_snapshot
         self.clock = clock or time.monotonic
         self.lock = threading.Lock()
         self.last_good = None
@@ -356,7 +425,8 @@ def _retain_unavailable_sources(current, previous, unavailable):
     prior_nodes = {node["id"]: node for node in previous["nodes"]}
     current_nodes = {node["id"]: node for node in current["nodes"]}
     for node_id, old in prior_nodes.items():
-        affected = any(_from_unavailable(ref, unavailable) for ref in old["source_refs"])
+        affected = (any(_from_unavailable(ref, unavailable) for ref in old["source_refs"])
+                    or ("registry" in unavailable and "registry" in old))
         if not affected:
             continue
         if node_id not in current_nodes:
@@ -375,7 +445,7 @@ def _retain_unavailable_sources(current, previous, unavailable):
                 kept["observed"] = False
             current["nodes"].append(kept)
             current_nodes[node_id] = kept
-        elif any(_from_unavailable(ref, unavailable) for ref in old["source_refs"]):
+        elif affected:
             now = current_nodes[node_id]
             if ({"identity", "identity_cards"} & unavailable) and "identity" in old:
                 now["last_known_identity"] = copy.deepcopy(old["identity"])
@@ -383,6 +453,9 @@ def _retain_unavailable_sources(current, previous, unavailable):
             if ({"state", "state_cards"} & unavailable) and "state" in old:
                 now["last_known_state"] = copy.deepcopy(old["state"])
                 now.setdefault("stale_fields", []).append("state")
+            if "registry" in unavailable and "registry" in old:
+                now["last_known_registry"] = copy.deepcopy(old["registry"])
+                now.setdefault("stale_fields", []).append("registry")
             if "sessions_conf" in unavailable and now["declared"] is None and old["declared"] is not None:
                 now["last_known_declared"] = old["declared"]
             if "tmux" in unavailable and old["observed"] is not None:

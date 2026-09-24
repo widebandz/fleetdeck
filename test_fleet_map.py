@@ -4,11 +4,13 @@
 import copy
 import json
 import os
+import sys
 import threading
 import unittest
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from unittest import mock
 
 os.environ.setdefault("FLEETDECK_HOST", "sample.invalid")
 
@@ -53,6 +55,26 @@ def snapshot():
 
 
 class ValidationTests(unittest.TestCase):
+    def test_registry_binding_is_projected_without_private_extra_fields(self):
+        value = snapshot()
+        value["nodes"][1]["registry"] = {"agent_id": "agent-moss", "state": "planned",
+                                           "host_id": "sample", "session_name": "Sample session",
+                                           "private_note": "do not expose"}
+        value["nodes"].append(node("agent:agent-moss", "agent", "agent-moss", refs=["registry"],
+                                   observed=None, registry={"agent_id": "agent-moss",
+                                                             "state": "planned", "host_id": "sample",
+                                                             "session_name": "Sample session"}))
+        value["edges"].append({**edge("binding:moss", "agent:agent-moss", "session:sample",
+                                      "planned_binding", "approved_registry_binding", "registry"),
+                               "private_note": "do not expose"})
+        value["summary"]["registry_revision"] = 3
+        value["sources"].append({"id": "registry", "status": "available", "as_of": TIME})
+        clean = R.validate_snapshot(value)
+        self.assertEqual(clean["summary"]["registry_revision"], 3)
+        self.assertEqual(clean["nodes"][1]["registry"]["agent_id"], "agent-moss")
+        self.assertNotIn("private_note", json.dumps(clean))
+        self.assertEqual(clean["edges"][-1]["evidence"], "approved_registry_binding")
+
     def test_collector_schema_including_file_and_process_projection(self):
         value = R.validate_snapshot(snapshot())
         self.assertEqual(value["nodes"][2]["process"]["classification"], "agent_like_process")
@@ -158,6 +180,67 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(value["status"], "partial")
         self.assertTrue(routed["stale"])
         self.assertEqual(routed["freshness"]["status"], "source_unavailable")
+
+    def test_registry_outage_keeps_binding_as_last_known(self):
+        prior = snapshot()
+        prior["nodes"][1]["registry"] = {"agent_id": "agent-moss", "state": "planned",
+                                          "host_id": "sample", "session_name": "Sample session"}
+        prior["nodes"].append(node("agent:agent-moss", "agent", "agent-moss", refs=["registry"],
+                                   observed=None, registry=prior["nodes"][1]["registry"]))
+        prior["edges"].append(edge("binding:moss", "agent:agent-moss", "session:sample",
+                                    "planned_binding", "approved_registry_binding", "registry"))
+        prior["sources"].append({"id": "registry", "status": "available", "as_of": TIME})
+        current = snapshot()
+        current["sources"].append({"id": "registry", "status": "unavailable", "as_of": TIME})
+        cache = self.cache_for(prior, current)
+        cache.get()
+        value = cache.get()[1]
+        self.assertEqual(value["status"], "partial")
+        session = next(n for n in value["nodes"] if n["id"] == "session:sample")
+        self.assertNotIn("registry", session)
+        self.assertEqual(session["last_known_registry"]["agent_id"], "agent-moss")
+        self.assertIn("registry", session["stale_fields"])
+        self.assertTrue(next(n for n in value["nodes"] if n["id"] == "agent:agent-moss")["stale"])
+        self.assertTrue(next(e for e in value["edges"] if e["id"] == "binding:moss")["stale"])
+
+
+class RegistryBridgeTests(unittest.TestCase):
+    def test_bounded_join_pipe_reads_stdin_without_temp_file(self):
+        script = "import json,sys; a=json.load(sys.stdin); json.dump({'seen':a['token']},sys.stdout)"
+        result = R._bounded_json_process([sys.executable, "-c", script],
+                                         input_bytes=b'{"token":"sample"}', source="registry")
+        self.assertEqual(result, {"seen": "sample"})
+
+    def test_registry_join_failure_marks_only_registry_unavailable(self):
+        raw = snapshot()
+        with mock.patch.dict(os.environ, {R.REGISTRY_ENV: "/tmp/test-registry"}):
+            with mock.patch.object(R, "_collector_output", return_value=raw):
+                with mock.patch.object(R, "_bounded_json_process", side_effect=R.SnapshotError("registry failed")):
+                    value = R._collect_joined_snapshot()
+        self.assertEqual(value["nodes"], raw["nodes"])
+        self.assertEqual(value["summary"]["source_health"], "degraded")
+        self.assertEqual(value["sources"][-1]["status"], "unavailable")
+        self.assertEqual(value["unknowns"][-1]["source"], "registry")
+
+    def test_join_receives_collector_json_via_stdin(self):
+        raw = snapshot()
+        joined = copy.deepcopy(raw)
+        joined["summary"]["registry_revision"] = 2
+        with mock.patch.dict(os.environ, {R.COLLECTOR_ENV: "/tmp/test-collector",
+                                              R.REGISTRY_ENV: "/tmp/test-registry",
+                                              R.HOST_ID_ENV: "test-host"}):
+            with mock.patch.object(R, "_collector_output", return_value=raw) as collector:
+                with mock.patch.object(R, "_bounded_json_process", return_value=joined) as runner:
+                    self.assertEqual(R._collect_joined_snapshot()["summary"]["registry_revision"], 2)
+        collector.assert_called_once_with("/tmp/test-collector")
+        args, kwargs = runner.call_args
+        self.assertEqual(args[0], ["/tmp/test-registry", "join", "--snapshot", "-", "--json"])
+        self.assertEqual(json.loads(kwargs["input_bytes"]), raw)
+
+    def test_invalid_host_id_stops_before_exec(self):
+        with mock.patch.dict(os.environ, {R.HOST_ID_ENV: "bad;host"}):
+            with self.assertRaises(R.SnapshotError):
+                R._collector_output("/tmp/test-collector")
 
 
 class RouteTests(unittest.TestCase):

@@ -1,30 +1,52 @@
 # Local fleet map preview
 
-The fleet map is a read-only, metadata-only preview. It is disabled on the
-normal Fleetdeck portal. To use it, run a separate listener on an unused
-loopback port that is **not** mapped through Tailscale Serve.
+The fleet map is a metadata-only preview with a local adoption draft creator.
+Its listener cannot write to the registry, cards, tmux, or chat routes. It is
+disabled on the normal Fleetdeck portal. Run it on a separate unused loopback
+port that is **not** mapped through Tailscale Serve.
 
 From an isolated Fleetdeck checkout:
 
 ```sh
 test -e services.json || printf '{"groups":[],"services":[]}\n' > services.json
 COLLECTOR=/absolute/path/to/tm-fleet-snapshot
+REGISTRY=/absolute/path/to/tm-fleet-registry
 SESSIONS_CONF=/absolute/path/to/sessions.conf
+HOST_ID=stable-local-host-id
 FLEETDECK_HOST=sample.invalid \
 FLEETDECK_BIND=127.0.0.1 \
 FLEETDECK_PORT=18790 \
 FLEETDECK_FLEET_MAP=1 \
 FLEETDECK_FLEET_SNAPSHOT="$COLLECTOR" \
+FLEETDECK_FLEET_REGISTRY="$REGISTRY" \
+FLEETDECK_FLEET_HOST_ID="$HOST_ID" \
 TM_SESSIONS_CONF="$SESSIONS_CONF" \
 python3 portal_server.py
 ```
 
 Open `http://127.0.0.1:18790/fleet-map`. The `services.json` above is an
 ignored, synthetic registry needed to start Fleetdeck. The collector path is
-supplied explicitly; the portal invokes only `--host-id local --json`, with a
-timeout and output limit. Its browser payload is projected through a strict
-schema and privacy filter. The page contains only an illustrative tour until
-the local API returns a valid snapshot.
+supplied explicitly; the portal invokes the collector with the selected host
+ID and `--json`, then pipes its JSON directly to the registry CLI's read-only
+`join --snapshot - --json`. Both commands have fixed argument lists, timeouts,
+and output limits. No snapshot temp file is written. The browser payload is
+projected through a strict schema and privacy filter. If the registry join
+fails, the current tmux graph remains visible, registry facts become stale,
+and the creator cannot produce an applyable draft.
+
+Select a local observed session or pane, then choose **+ New Agent**. Existing
+assigned cards default to **Preserve existing card exactly**. Authoring an
+assigned card requires Owner, concern, Owns, and Refuses. A live-only session
+without a card or standard declaration also needs an absolute workspace root.
+The review shows the planned registry binding and card action, with the
+registry revision pinned. Download `fleet-adoption-draft.json`, then run the
+displayed `~/bin/tm-fleet-registry adopt --draft-file ... --dry-run --json`
+command over your operator SSH session. Read the CLI's authoritative card diff
+and registry change before running the displayed `--apply --json` command.
+The CLI performs validation, compare-and-swap, backup, and read-back. Refresh
+the map after Apply to see the planned binding attached to that session. A
+planned binding does not verify the current pane occupant. The downloaded
+draft can contain a local root and owner, so keep it private.
 
 On this preview listener, GET is limited to `/healthz`, `/fleet-map`, and
 `/api/fleet-map`; all POSTs are rejected. Legacy terminal, chat, and board
