@@ -420,7 +420,7 @@
   function creatorIssue(c){
     if(!data||data.status==="source_unavailable"||data.status==="stale")return "The live map is unavailable or stale. Refresh before drafting.";
     if(demo||data.status==="demo")return "This is an illustrative tour. Open a live registry-backed map to make an applyable draft.";
-    if(!c.session||!c.host||c.host.observed!==true||c.session.observed!==true||c.session.stale||(c.session.stale_fields||[]).includes("observed"))return "Select a currently observed local session or pane. Remote and last-known terminals cannot be adopted here.";
+    if(!c.session||!c.host||c.host.observed!==true||!(c.host.source_refs||[]).includes("tmux")||c.session.observed!==true||c.session.stale||(c.session.stale_fields||[]).includes("observed"))return "Select a currently observed local session or pane. Remote and last-known terminals cannot be adopted here.";
     if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(c.hostId||"")||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(c.session.label))return "This host or session name is outside the registry's safe-name format. Use the CLI to review it.";
     if(c.session.registry&&c.session.registry.state!=="retired")return "This session already has a "+c.session.registry.state+" binding ("+c.session.registry.agent_id+"). Choose another session.";
     if(!Number.isSafeInteger(c.revision)||c.revision<0)return "Registry revision is unavailable. Connect the registry join before drafting.";
