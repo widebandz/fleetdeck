@@ -188,7 +188,8 @@
       <dl class="creator-diff" id="creator-diff"></dl>
       <strong>Draft file</strong><code class="creator-code" id="creator-json"></code>
       <strong>Run over your operator SSH session</strong><code class="creator-code" id="creator-commands"></code>
-      <div class="creator-actions"><button class="btn primary" type="button" id="creator-download">Download draft JSON</button><button class="btn" type="button" id="creator-copy">Copy CLI commands</button><span class="aside">CLI Apply requires the pinned revision.</span></div>
+      <p>If your browser renames or moves the downloaded file, replace the path in both commands with its actual saved path. Run the dry run first and inspect its output before copying Apply.</p>
+      <div class="creator-actions"><button class="btn primary" type="button" id="creator-download">Download draft JSON</button><button class="btn" type="button" id="creator-copy-dry">Copy dry-run</button><button class="btn" type="button" id="creator-copy-apply">Copy Apply</button><span class="aside">CLI Apply requires the pinned revision.</span></div>
     </div>
     <div class="creator-actions"><button class="btn primary" type="button" id="creator-build">Review draft</button><button class="btn" type="button" id="creator-cancel">Cancel</button></div>
   </div>
@@ -219,7 +220,7 @@
     {id:"inbox:pip",from:"channel:inbox",to:"session:pip",type:"chat_routes_to",evidence:"declared",source:"synthetic",freshness:{as_of:"2026-09-24T00:00:00Z",status:"sample"},display:"Inbox → Pip"}
   ]};
   var data=null,demo=false,selectedSession=null,selectedKind="node",selectedId=null,requestSerial=0,allMode=false,showComputed=false,zoom=1;
-  var creatorDraft=null,creatorRevision=null,creatorSessionId=null,creatorPaneId=null,creatorReturnFocus=null;
+  var creatorDraft=null,creatorRevision=null,creatorFilename=null,creatorSessionId=null,creatorPaneId=null,creatorReturnFocus=null;
   var nodeIndex=function(){var m={};if(data)data.nodes.forEach(function(n){m[n.id]=n});return m};
   var childrenOf=function(id){return data?data.nodes.filter(function(n){return n.parent_id===id}):[]};
   var sessions=function(){return data?data.nodes.filter(function(n){return n.type==="session"}).sort(function(a,b){return a.label.localeCompare(b.label)}):[]};
@@ -421,7 +422,7 @@
     if(!data||data.status==="source_unavailable"||data.status==="stale")return "The live map is unavailable or stale. Refresh before drafting.";
     if(demo||data.status==="demo")return "This is an illustrative tour. Open a live registry-backed map to make an applyable draft.";
     if(!c.session||!c.host||c.host.observed!==true||!(c.host.source_refs||[]).includes("tmux")||c.session.observed!==true||c.session.stale||(c.session.stale_fields||[]).includes("observed"))return "Select a currently observed local session or pane. Remote and last-known terminals cannot be adopted here.";
-    if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(c.hostId||"")||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(c.session.label))return "This host or session name is outside the registry's safe-name format. Use the CLI to review it.";
+    if(!/^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(c.hostId||"")||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(c.session.label))return "This host or session name is outside the collector's safe-name format. Use the CLI to review it.";
     if(c.session.registry&&c.session.registry.state!=="retired")return "This session already has a "+c.session.registry.state+" binding ("+c.session.registry.agent_id+"). Choose another session.";
     if(!Number.isSafeInteger(c.revision)||c.revision<0)return "Registry revision is unavailable. Connect the registry join before drafting.";
     if(!((data.sources||[]).some(function(s){return s.id==="registry"&&s.status==="available"})))return "Registry source is unavailable. Refresh after it is readable.";
@@ -442,7 +443,7 @@
     }else if(issue)creatorMessage(issue,false);
     else if(!creatorDraft)creatorMessage("Ready to draft a planned binding at registry revision "+c.revision+". This will not start or verify a process.",true);
   }
-  function clearCreatorReview(){creatorDraft=null;creatorRevision=null;byId("creator-review").hidden=true;byId("creator-json").textContent="";byId("creator-commands").textContent=""}
+  function clearCreatorReview(){creatorDraft=null;creatorRevision=null;creatorFilename=null;byId("creator-review").hidden=true;byId("creator-json").textContent="";byId("creator-commands").textContent=""}
   function openCreator(ev){
     var idx=nodeIndex(),selected=idx[selectedId];creatorSessionId=selectedSession;
     creatorPaneId=selected&&selected.type==="pane"?selected.id:null;
@@ -485,13 +486,16 @@
   function reviewCreator(){
     try{
       var draft=buildCreatorDraft();creatorDraft=draft;creatorRevision=draft.expected_revision;
+      var random=new Uint8Array(6);crypto.getRandomValues(random);
+      creatorFilename="fleet-adoption-"+draft.agent_id+"-r"+draft.expected_revision+"-"+Array.from(random,function(v){return v.toString(16).padStart(2,"0")}).join("")+".json";
       var card=draft.role==="preserve"?"Preserve existing card byte for byte":((creatorContext().session.identity.card_present?"Update":"Create")+" "+draft.role+" card");
       var rows=[["Registry revision",draft.expected_revision+" → "+(draft.expected_revision+1)],["Agent binding","None → "+draft.agent_id+" · planned"],["Session",draft.host_id+" / "+draft.session_name],["Identity card",card]];
       if(draft.role!=="preserve")rows.push(["Card content",(draft.owner||"No owner")+" · "+(draft.concern||"No concern")+" · "+draft.owns.length+" Owns · "+draft.refuses.length+" Refuses · "+draft.approval.length+" approval rules"],["Root",draft.root||"Existing card/standard root"]);
       byId("creator-diff").innerHTML=rows.map(function(x){return '<div><dt>'+esc(x[0])+'</dt><dd class="added">'+esc(x[1])+'</dd></div>'}).join("");
       byId("creator-review-note").textContent=draft.role==="preserve"?"The registry gets one planned binding. The identity card is validated and preserved byte for byte. The CLI dry run shows the authoritative diff before Apply.":"The registry gets one planned binding and the identity card is authored in the same transaction. The CLI dry run validates both and shows the authoritative diff before Apply. Chat routes are unchanged.";
       byId("creator-json").textContent=JSON.stringify(draft,null,2);
-      byId("creator-commands").textContent="~/bin/tm-fleet-registry adopt --draft-file ~/Downloads/fleet-adoption-draft.json --dry-run --json\n~/bin/tm-fleet-registry adopt --draft-file ~/Downloads/fleet-adoption-draft.json --apply --json";
+      var draftPath="~/Downloads/"+creatorFilename;
+      byId("creator-commands").textContent="~/bin/tm-fleet-registry adopt --draft-file "+draftPath+" --dry-run --json\n~/bin/tm-fleet-registry adopt --draft-file "+draftPath+" --apply --json";
       byId("creator-review").hidden=false;creatorMessage("Draft ready at revision "+draft.expected_revision+". Run the dry run and inspect its result before Apply.",true);
       byId("creator-review").scrollIntoView({block:"nearest"});
     }catch(e){clearCreatorReview();creatorMessage(e.message||"Draft validation failed.",false)}
@@ -499,7 +503,7 @@
   function downloadCreator(){
     if(!creatorDraft)return;
     var blob=new Blob([JSON.stringify(creatorDraft,null,2)+"\n"],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");
-    a.href=url;a.download="fleet-adoption-draft.json";document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url)},1000);
+    a.href=url;a.download=creatorFilename;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url)},1000);
   }
   byId("new-agent").addEventListener("click",openCreator);
   byId("inspector-new-agent").addEventListener("click",openCreator);
@@ -510,7 +514,13 @@
   byId("creator").addEventListener("input",function(ev){if(ev.target.matches("input,textarea")){clearCreatorReview();updateCreatorContext()}});
   byId("creator-build").addEventListener("click",reviewCreator);
   byId("creator-download").addEventListener("click",downloadCreator);
-  byId("creator-copy").addEventListener("click",async function(){if(!creatorDraft)return;try{await navigator.clipboard.writeText(byId("creator-commands").textContent);creatorMessage("CLI commands copied. Review the dry-run output before Apply.",true)}catch(e){creatorMessage("Clipboard unavailable. Select the commands above to copy them.",false)}});
+  async function copyCreatorCommand(index){
+    if(!creatorDraft)return;
+    try{await navigator.clipboard.writeText(byId("creator-commands").textContent.split("\n")[index]);creatorMessage(index===0?"Dry-run command copied. Inspect its output before Apply.":"Apply command copied. Run it only after inspecting the dry-run output.",true)}
+    catch(e){creatorMessage("Clipboard unavailable. Select the command above to copy it.",false)}
+  }
+  byId("creator-copy-dry").addEventListener("click",function(){copyCreatorCommand(0)});
+  byId("creator-copy-apply").addEventListener("click",function(){copyCreatorCommand(1)});
   document.addEventListener("click",function(ev){var session=ev.target.closest("[data-session]"),node=ev.target.closest("[data-node]"),edge=ev.target.closest("[data-edge]");if(session){selectNode(session.dataset.session);return}if(node){selectNode(node.dataset.node);return}if(edge){selectEdge(edge.dataset.edge)}});
   document.addEventListener("keydown",function(ev){var el=ev.target.closest(".wire[data-edge],.wire[data-node]");if(el&&(ev.key==="Enter"||ev.key===" ")){ev.preventDefault();if(el.dataset.edge)selectEdge(el.dataset.edge);else selectNode(el.dataset.node)}});
   byId("search").addEventListener("input",renderRoster);

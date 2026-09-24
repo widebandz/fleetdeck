@@ -78,6 +78,8 @@ class ValidationTests(unittest.TestCase):
     def test_remote_stale_markers_and_runtime_receipt_are_projected(self):
         value = snapshot()
         value["nodes"][1]["stale"] = True
+        value["nodes"][1]["last_known_observed"] = True
+        value["nodes"][1]["observed"] = None
         value["nodes"].append(node("agent:sample", "agent", "Sample agent", refs=["registry"],
                                    observed=None, registry={"agent_id": "sample", "state": "verified",
                                                              "host_id": "sample", "session_name": "Sample session"}))
@@ -86,8 +88,15 @@ class ValidationTests(unittest.TestCase):
                                "stale": False})
         clean = R.validate_snapshot(value)
         self.assertTrue(clean["nodes"][1]["stale"])
+        self.assertIsNone(clean["nodes"][1]["observed"])
+        self.assertTrue(clean["nodes"][1]["last_known_observed"])
+        self.assertEqual(clean["nodes"][1]["observed_at"], TIME)
         self.assertFalse(clean["edges"][-1]["stale"])
         self.assertEqual(clean["edges"][-1]["type"], "occupies")
+        bad = copy.deepcopy(value)
+        bad["nodes"][1]["last_known_observed"] = "yes"
+        with self.assertRaises(R.SnapshotError):
+            R.validate_snapshot(bad)
 
     def test_path_claim_projects_access_without_canonical_path(self):
         value = snapshot()
@@ -357,9 +366,10 @@ class RegistryBridgeTests(unittest.TestCase):
         self.assertEqual(json.loads(kwargs["input_bytes"]), raw)
 
     def test_invalid_host_id_stops_before_exec(self):
-        with mock.patch.dict(os.environ, {R.HOST_ID_ENV: "bad;host"}):
-            with self.assertRaises(R.SnapshotError):
-                R._collector_output("/tmp/test-collector")
+        for invalid in ("bad;host", "7host", "bad.host"):
+            with self.subTest(host_id=invalid), mock.patch.dict(os.environ, {R.HOST_ID_ENV: invalid}):
+                with self.assertRaises(R.SnapshotError):
+                    R._collector_output("/tmp/test-collector")
 
 
 class RouteTests(unittest.TestCase):

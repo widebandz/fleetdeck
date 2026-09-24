@@ -134,6 +134,8 @@ def validate_snapshot(raw):
         }
         if "stale" in item:
             node["stale"] = _optional_bool(item["stale"])
+        if "last_known_observed" in item:
+            node["last_known_observed"] = _optional_bool(item["last_known_observed"])
         if "reachability" in item:
             node["reachability"] = _safe_text(item["reachability"], limit=60)
         if not node["label"]:
@@ -347,7 +349,7 @@ def _bounded_json_process(argv, *, input_bytes=None, source="source", timeout=TI
 
 def _fleet_host_id():
     host_id = os.environ.get(HOST_ID_ENV) or "local"
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,39}", host_id):
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,39}", host_id):
         raise SnapshotError("invalid fleet host ID")
     try:
         ipaddress.ip_address(host_id)

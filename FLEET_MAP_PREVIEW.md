@@ -58,10 +58,13 @@ assigned cards default to **Preserve existing card exactly**. Authoring an
 assigned card requires Owner, concern, Owns, and Refuses. A live-only session
 without a card or standard declaration also needs an absolute workspace root.
 The review shows the planned registry binding and card action, with the
-registry revision pinned. Download `fleet-adoption-draft.json`, then run the
+registry revision pinned. Download its unique
+`fleet-adoption-<agent-id>-r<revision>-<nonce>.json`, then run the
 displayed `~/bin/tm-fleet-registry adopt --draft-file ... --dry-run --json`
 command over your operator SSH session. Read the CLI's authoritative card diff
-and registry change before running the displayed `--apply --json` command.
+and registry change before copying and running the displayed `--apply --json`
+command. If the browser renames or moves the download, replace the path in
+both commands with its actual saved path.
 The CLI performs validation, compare-and-swap, backup, and read-back. Refresh
 the map after Apply to see the planned binding attached to that session. A
 planned binding does not verify the current pane occupant. The downloaded
