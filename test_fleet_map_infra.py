@@ -179,6 +179,7 @@ class InfrastructureTests(unittest.TestCase):
     def test_reader_rejects_private_payload_and_invalid_layers(self):
         clean = I.enrich(snapshot(), self.env, self.runner)
         for patch in ({"payload": str(self.base / "secret")}, {"payload": "imsg:chat-9"},
+                      {"payload": "vck_0123456789abcdefghijklmnop"},
                       {"layer": "private"}, {"layer": None}, {"payload": None}):
             bad = copy.deepcopy(clean)
             bad["edges"][-1].update(patch)

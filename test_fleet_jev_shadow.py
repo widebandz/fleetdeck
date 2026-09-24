@@ -111,11 +111,13 @@ class JevShadowTests(unittest.TestCase):
     def test_http_and_timeout_errors_never_include_provider_body(self):
         secret_marker = "sensitive-provider-error-body"
 
-        def http_error(_request, *, timeout):
-            raise urllib.error.HTTPError(J.ENDPOINT, 401, secret_marker, {},
-                                         io.BytesIO(secret_marker.encode()))
+        def http_error(code):
+            def raise_error(_request, *, timeout):
+                raise urllib.error.HTTPError(J.ENDPOINT, code, secret_marker, {},
+                                             io.BytesIO(secret_marker.encode()))
+            return raise_error
 
-        for post in (http_error,
+        for post in (http_error(401), http_error(429), http_error(503),
                      lambda _request, *, timeout: (_ for _ in ()).throw(TimeoutError(secret_marker))):
             with self.subTest(post=post), self.assertRaises(J.ShadowFailure) as failure:
                 J.evaluate_synthetic(FAKE_KEY, post=post)

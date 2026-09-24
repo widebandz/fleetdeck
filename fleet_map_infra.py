@@ -31,7 +31,7 @@ PRIVATE = re.compile(r"(?:\b(?:\d{1,3}\.){3}\d{1,3}\b|\+?\d{10,}\b|"
                      r"\b(?:imsg:)?chat[\s:-]*\d+\b|(?:/(?:Users|home|tmp|private|var|etc)/|~/|file://)|"
                      r"(?<![A-Za-z0-9])/[A-Za-z0-9._-]+(?:/|$)|"
                      r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b|"
-                     r"\b(?:sk-[A-Za-z0-9]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b|"
+                     r"\b(?:sk-[A-Za-z0-9]{16,}|gh[pousr]_[A-Za-z0-9]{16,}|vck_[A-Za-z0-9]{16,})\b|"
                      r"\b(?:api[_ -]?key|access[_ -]?token|secret|password|authorization)\s*[:=]\s*[^\s,;]+)", re.I)
 SERVICE_GROUPS = {"fleet", "apps", "models", "data"}
 SERVICE_KINDS = {"app", "api", "web"}

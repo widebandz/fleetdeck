@@ -139,7 +139,8 @@ class ValidationTests(unittest.TestCase):
 
     def test_rejects_private_labels_and_bad_schema(self):
         for label in ("chat 19", "2125550123", "/tmp/private-note", "/private/secret",
-                      "/opt/custom/file", "/Volumes/work", "name@example.test"):
+                      "/opt/custom/file", "/Volumes/work", "name@example.test",
+                      "vck_0123456789abcdefghijklmnop"):
             bad = snapshot()
             bad["nodes"][1]["label"] = label
             with self.subTest(label=label), self.assertRaises(R.SnapshotError):
