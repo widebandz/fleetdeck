@@ -102,6 +102,11 @@ It does not yet collect per-request events, tool calls, costs, or completion
 outcomes. Ticket files contain coarse lifecycle timestamps, but the broken
 ticket shim and absent spans prevent a trustworthy live efficiency claim.
 
+The first frozen, synthetic declared-role batch and its one ambiguous-route
+miss are recorded in [JEV_ROUTE_TRIAL_20260924.md](JEV_ROUTE_TRIAL_20260924.md).
+It tests classification only; the next gate is independently labeled,
+operator-style texts and live readiness checks.
+
 References: [Vercel evaluation API](https://vercel.com/docs/ai-gateway/modalities/evaluation),
 [Gateway authentication](https://vercel.com/docs/ai-gateway/authentication-and-byok),
 [Vercel setup command scope](https://vercel.com/ai-gateway).
