@@ -1,7 +1,10 @@
 # Fleet map: live infrastructure layers
 
 For the four-field DQR example, see [DQR scope map](DQR_SCOPE_MAP.md). It
-shows the agent, application stack, bound chat ID, and configured requester.
+shows the session, application stack, bound chat ID, and configured requester.
+For the architecture that joins the local fleet, website agent runtime, chip
+visuals, and future movement telemetry, see
+[Fleet chip architecture](FLEET_CHIP_ARCHITECTURE.md).
 
 Audited 2026-09-24 against the live, redacted `/api/fleet-map` response. The
 snapshot held **207 nodes and 205 semantic edges** after the focused DQR projection. Counts and listener status
@@ -31,7 +34,7 @@ short initial set with a reveal control.
 
 | Tab, in UI order | Evidence shown now | Limit |
 | --- | --- | --- |
-| Overview | Trace: host, session, chat. DQR: session, configured requester, local chat ID, application stack. | No physical phone or delivered-message claim. |
+| Overview | Trace: host, session, chat. DQR: a declared requester badge plus chat → session and session → repository wires, with stack facts inside the repository. | No physical phone, verified requester handle, delivered-message, or observed edit claim. |
 | Identity | Card roles and short Trace responsibility summary; DQR requester, operator, and Git identity. | No verified registry agent or current occupant; DQR requester handle mapping is unverified. |
 | Routing | Bound-chat ownership, Trace router metadata and outbox, and DQR's operator-specific chat route. | A configured or computed path is not delivery; external DQR text is drafted and held outside its pane. |
 | Runtime | Host → session → window → pane, process classification, and DQR's working-root mismatch. | Process label is not stable agent identity or confinement. |

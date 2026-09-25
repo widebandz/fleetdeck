@@ -12,13 +12,14 @@ same boundary.
 | Application stack | The repo's package manifest declares Next.js 16, React 19, TypeScript 5, Tailwind 4, and Supabase SDKs. Deeper layers show the DQR repository, its `haqzy` Git identity, and the linked Vercel project. Dependencies and a local project link do not prove an API call or a specific release. |
 
 The focused record describes DQR, its application stack, its bound chat, and
-its configured requester. No other agent is part of this record. It displays
-the intended path as requester → bound chat → DQR → repository stack. The first
-arrow is a declared contact association with an unverified sender identity;
-the chat arrow carries configured operator instructions, while external text
-is held outside DQR. The final arrow is a declared workspace relationship,
-with current access and edits unobserved. Select any card or arrow to inspect
-its evidence beside the map, then open a deeper layer if needed.
+its configured requester. No other agent is part of this record. The requester
+is a declared contact badge, with no traffic wire because the handle-to-person
+mapping is unverified. The two source-backed wires are **bound chat → DQR**
+(`chat_routes_to`, configured operator instructions; external text held) and
+**DQR → repository** (`uses_workspace`, a declared root rather than an
+observed edit). The package stack sits inside the repository object. Select a
+card or wire to inspect its evidence beside the map, then open a deeper layer
+if needed.
 
 ## Current behavior that the record must not overstate
 
