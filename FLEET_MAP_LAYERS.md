@@ -1,11 +1,10 @@
 # Fleet map: live infrastructure layers
 
-For the scoped DQR example, see [DQR scope map](DQR_SCOPE_MAP.md). It follows
-the configured reply approval and production image paths separately, and
-records the current boundary mismatches.
+For the four-field DQR example, see [DQR scope map](DQR_SCOPE_MAP.md). It
+shows the agent, application stack, bound chat ID, and configured requester.
 
 Audited 2026-09-24 against the live, redacted `/api/fleet-map` response. The
-snapshot held **210 nodes and 212 semantic edges** after the DQR scope projection. Counts and listener status
+snapshot held **207 nodes and 205 semantic edges** after the focused DQR projection. Counts and listener status
 can change; the evidence labels on each object matter more than a fixed count.
 
 ## Progressive view
@@ -32,16 +31,16 @@ short initial set with a reveal control.
 
 | Tab, in UI order | Evidence shown now | Limit |
 | --- | --- | --- |
-| Overview | Selected session, observed host placement, declared bound chat. | No physical phone or delivered-message claim. |
-| Identity | Card roles and short responsibility summaries; DQR engagement, operator, and Git identity. | No verified registry agent or current occupant. |
-| Routing | Bound-chat ownership, Trace router metadata and outbox, and DQR's separate held-reply gate. | A configured or computed path is not delivery. |
+| Overview | Trace: host, session, chat. DQR: session, configured requester, local chat ID, application stack. | No physical phone or delivered-message claim. |
+| Identity | Card roles and short Trace responsibility summary; DQR requester, operator, and Git identity. | No verified registry agent or current occupant; DQR requester handle mapping is unverified. |
+| Routing | Bound-chat ownership, Trace router metadata and outbox, and DQR's operator-specific chat route. | A configured or computed path is not delivery; external DQR text is drafted and held outside its pane. |
 | Runtime | Host → session → window → pane, process classification, and DQR's working-root mismatch. | Process label is not stable agent identity or confinement. |
 | Tools & skills | Card-listed tools and scripts. | Use unobserved; per-session skills not inventoried. |
 | Memory & MD | Trace's present `AGENTS.md` and `CLAUDE.md`, card and standard metadata. | Contents and current process loading unobserved. |
 | Services & APIs | Registered services and observed local port listeners, including map preview. | Listener does not prove Trace called an API or identify its process. |
 | Network | Symbolic Serve endpoints and configured proxy targets; local/unchecked hosts. | Requests, phone identity, remote SSH reachability unobserved. |
-| Data & state | Symbolic Trace outbox, DQR held drafts and repository, declared writer/consumer relations, root checks. | No queued content, approved path claim, or current lease. |
-| Deployment | Four local LaunchAgent declarations, DQR push wrapper, GitHub `main`, and linked Vercel project. | Configuration does not prove a run or release; DQR image publication lacks a predeploy approval gate. |
+| Data & state | Symbolic Trace outbox, DQR repository, declared writer/consumer relations, root checks. | No queued content, approved path claim, or current lease. |
+| Deployment | Four local LaunchAgent declarations, DQR push wrapper, GitHub `main`, and linked Vercel project. | Configuration does not prove a run or release. |
 | Terminal detail | Full branch and named connections. | Same evidence limits as focused tabs. |
 
 Only show populated elements as nodes and pipes. When a layer has no supported
@@ -70,14 +69,14 @@ checks to one target do not prove multiple deliveries.
 | `host` | 2 | Compute/network. Brainwave local and observed; one declared Mac unchecked remotely. |
 | `session` | 40 | Identity/routing/runtime. Stable tmux name, separate from agent ID. |
 | `window`, `pane` | 41 each | Runtime. Process classification is observation, not occupant proof. |
-| `chat` | 6 | Routing. Four bound chats, a router command channel, and DQR's separate private approval chat. |
-| `tool`, `file` | 5 each | Capabilities. Exact card references; invocation unobserved. |
+| `chat` | 5 | Routing. Four bound chats and a router command channel. DQR's bounded host-local chat ID is shown. |
+| `tool`, `file` | 4 and 5 | Capabilities. Exact focused card references; invocation unobserved. |
 | `workspace` | 1 | Data & state. DQR's declared repository, with its path redacted. |
 | `instruction` | 2 | Memory & MD. Trace instruction-file presence; content/load unobserved. |
 | `service` | 36 | Services & APIs. Thirty-five registrations plus local map preview. |
 | `endpoint` | 25 | Network/deployment. Symbolic tailnet HTTPS proxy endpoints, including map link, plus DQR GitHub `main` and production site. |
 | `job` | 4 | Deployment. Chat binding, map preview, Trace keeper, Trace outbox. |
-| `data` | 2 | Data & state. Symbolic Trace outbox and DQR held drafts; no content. |
+| `data` | 1 | Data & state. Symbolic Trace outbox; no content. |
 
 The schema also permits `agent`, `skill`, and `channel` nodes;
 none exist in this live graph. The registry has zero planned or verified agent
@@ -93,7 +92,7 @@ bindings, approved path claims, current occupants, or active work leases.
 | `router_agent_pane_ready` | 28 | Router channel → session; candidate active-pane readiness. | Computed; running policy/delivery unverified. |
 | `hands_off_to` | 1 | Media session → GHL session; handoff intent, content unspecified. | Declared. |
 | `sends_chat` | 1 | Trace outbox sender job → bound chat; queued text messages. | Declared; send unobserved. |
-| `uses_tool` | 5 | Session → tool; listed capability, invocation unobserved. | Declared. |
+| `uses_tool` | 4 | Session → tool; listed focused capability, invocation unobserved. | Declared. |
 | `executes_file` | 5 | Session → script; listed script, execution unobserved. | Declared; UI should say “listed script.” |
 | `has_instruction_file` | 2 | Trace session → MD file; instruction file available in declared root. | Declared/present; load unobserved. |
 | `declares_service` | 35 | Host → service; service registration metadata. | Declared; listener checked separately. |
@@ -104,8 +103,6 @@ bindings, approved path claims, current occupants, or active work leases.
 | `schedules_job` | 4 | Host → LaunchAgent job; job registration. | Declared; load status on job. |
 | `launches` | 2 | Keeper job → Trace session; map job → preview service. | Declared launch targets; execution separate. |
 | `uses_workspace` | 1 | DQR session → DQR repository; declared root, with current pane placement checked separately. | Declared; access unobserved. |
-| `holds_draft`, `approves_draft`, `releases_reply` | 1 each | Bound DQR chat → held draft; private operator chat → held draft; approved draft → bound chat. | Configured gate; message delivery unobserved. |
-| `stages_media`, `writes_asset`, `invokes_tool` | 1 each | Bound DQR chat → media tool; media tool → repo asset; media tool → push wrapper. | Script path; execution unobserved. |
 | `pushes_to`, `triggers_deploy` | 1 each | Push wrapper → GitHub `main`; GitHub `main` → linked Vercel production project. | Configured path; a particular release unobserved. |
 
 The map HTTPS route is `endpoint:tailnet-map → service:fleet-map-local` with
@@ -143,9 +140,10 @@ Remote SSH collection is not configured. Infrastructure sources include
 service registrations, listeners, Trace workspace/card, LaunchAgents and
 load status, and Tailscale Serve configuration. The local preview remains a
 loopback LaunchAgent service fronted by tailnet-only HTTPS; it is not a public
-site or released Setup build. The browser receives no raw paths, addresses,
-ports, chat IDs, pane text, message bodies, instruction contents, or outbox
-contents.
+site or released Setup build. The browser exposes only DQR's checked,
+host-local numeric chat ID. It receives no raw paths, addresses, ports,
+contact handles, chat GUIDs, pane text, message bodies, instruction contents,
+or outbox contents.
 
 Remaining unknowns: physical phone identity/ownership/viewing, individual
 chat or HTTP delivery, verified Trace agent/occupant, actual tool/skill/MCP

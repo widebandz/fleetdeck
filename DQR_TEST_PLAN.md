@@ -1,74 +1,55 @@
-# DQR test plan: prove the core works without Media
+# Test DQR as one scoped change agent
 
-The **Media** tmux agent is separate from DQR. The `dqr-media` name refers to
-a DQR-specific image script attached to its chat binding. The first test
-therefore uses plain text only and removes the Media session from the fixture.
-The current image path gets its own publication-safety test.
+This test covers only **DQR → its application stack**, **Messages chat 21**,
+and **the person who requests a change**. The requester must be attributed to the actual sender of
+each test message: the group label names Imam El, but his handle has not been
+independently verified; the current DQR inbox records observed Zayed only.
 
-## 0. Record a read-only baseline
+## 1. Baseline without side effects
 
-Capture the current Git commit and clean/dirty status, DQR pane working
-directory, and the results of `imsg-chatbind --check`, `dqr-keeper --check`,
-and `dqr-push --check`. Keep the full check output private because it can
-contain contact details. The three checks passed on 2026-09-24; the pane was
-outside its declared repo root. A passing push precondition check does not
-test production approval or deploy.
+Record the DQR repo commit and status, the live pane's working directory, and
+the results of `imsg-chatbind --check`, `dqr-keeper --check`, and
+`dqr-push --check`. Keep raw check output private because it can contain
+contact details. All three checks passed on 2026-09-24. The pane was outside
+its declared repo root. `dqr-push --check` verifies Git preconditions, not an
+approval gate or an actual deployment.
 
-## 1. Test the chat contract in an isolated fixture
+## 2. Prove request routing in an isolated fixture
 
-Use fake contacts, a temporary inbox and held-draft directory, a fake clock,
-and mocked tmux/iMessage/Claude calls. Import the handler functions or extract
-the routing logic behind injected interfaces; do not run the installed daemon
-against the real inbox. Leave the separate Media session absent and make the
-image adapter unavailable.
+Use fake sender identities, a temporary inbox, and mocked tmux/iMessage
+calls:
 
-| Input | Required result |
+| Text request | Required result |
 | --- | --- |
-| Operator plain text in DQR group | One instruction to DQR; no held draft, outbound group reply, repository write, or push. |
-| Other participant's plain text | One held draft and a private operator notice; no instruction to DQR, group reply, repository write, or push. |
-| Approval-shaped text from wrong sender or chat, wrong/expired draft ID, or a replay | No group send and no draft release. |
-| Exact approval from the configured private operator chat | One matching draft released after target revalidation; replay sends nothing. |
-| Draft drop from that private chat | Pending draft removed; nothing sent to the group. |
+| Configured operator sends a labeled change request in the bound chat | DQR receives one instruction; no outbound group reply, repo write, or push. |
+| Other group participant sends a labeled request | The handler records the real sender and holds a draft for operator review. Verify whether the request actually reaches DQR; current code routes it to the draft path, not the live DQR pane. |
+| Wrong sender, chat, or reused approval token | No group send or change to the repository. |
 
-This is the independence proof: all core text cases must pass with no Media
-agent and no image script.
+This test establishes who can request work and what the bound chat actually
+delivers. A group label alone is not proof of a person's identity or of agent
+delivery.
 
-## 2. Run a controlled text-only live smoke test
+## 3. Exercise one harmless site change off production
 
-After the isolated contract passes, Zayed can send one unique benign text in
-the existing DQR group, asking only for an acknowledgement inside the DQR
-session. Confirm the marker reaches the DQR pane and the Git commit stays the
-same. If the other participant agrees, a second benign text should produce
-one held draft in Zayed's private approval chat and **no group reply**. Drop
-that draft to clean up. Record timestamps for routing and drafting latency.
-This step requires real people to send texts; the test runner does not send
-them.
+Once the requester and route are confirmed, run DQR in a disposable checkout
+with its network publisher and live Git credential unavailable. Give it a
+unique text request for a small copy change. DQR should produce a diff, run
+the app's lint and build checks, and present the diff and test results to
+Zayed. Verify the production `main` commit and live site remain unchanged.
+For the deployment leg, use a temporary bare Git remote or an injected
+publisher; require explicit approval before exactly one push.
 
-## 3. Test publication separately before any live photo
+Only after that boundary works should a separately authorized live publish
+test verify GitHub `main` and the Vercel site. The current push wrapper checks
+identity but has no prepublication approval gate, so a live publish is not a
+safe first test.
 
-First add a side-effect-mocked regression for an image from the other group
-participant. Require **zero public repo writes, commits, pushes, and sends**
-until explicit publication approval. The current handler calls the image
-script before the sender split, so this test is expected to fail now.
+## Pass criteria
 
-After the approval boundary is implemented, factor the DQR image adapter so
-fixtures can inject a temporary repo, bare Git remote, fake chat, and fake
-publisher. Test one approved image/commit, replay rejection, wrong sender or
-approval channel, rejected MIME, over-limit size, failed EXIF stripping, and
-changed target identity. No installed production script should run in that
-fixture: their paths and remotes are hardcoded to live resources.
+- Every request has an evidenced sender, bound chat, and intended DQR target.
+- The proposed change is reviewable as a diff, and lint/build pass.
+- No group reply, Git push, or production change occurs before approval.
+- One approval releases one action; a replay has no effect.
 
-Do not use `imsg-chatbind --dry` or `--once` as an isolation mode; both can
-process live state, and dry mode can still stage images. `dqr-media --no-push`
-still writes into the production repository. `dqr-keeper --test` sends a real
-notice. Keep live photos and live publish commands out of the test until the
-approval regression passes.
-
-## Acceptance criteria
-
-- DQR text routing and held-reply approval pass without a Media session.
-- Zero unapproved group replies or production pushes.
-- Plain-text tests leave the DQR Git commit unchanged.
-- One approved draft or publication acts once; replay has no further effect.
-- The runtime and registry report DQR's real identity and working boundary;
-  any mismatch is visible in the fleet map.
+Do not use the installed chat daemon's `--dry` mode as a sandbox: it can still
+process live state. Keep the first live smoke test text-only and read-only.
