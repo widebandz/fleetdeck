@@ -55,6 +55,120 @@ def snapshot():
 
 
 class ValidationTests(unittest.TestCase):
+    def _scope_snapshot(self):
+        value = snapshot()
+        session = next(n for n in value["nodes"] if n["id"] == "session:sample")
+        session["label"] = "sample"
+        session["source_refs"].append("infra:scope_brief:sample")
+        session["responsibility_model"] = {
+            "version": R.SCOPE_BRIEF_VERSION, "session": "sample",
+            "role": "Installation specialist", "mission": "Build the adopted product.",
+            "source": "Operator scope directive", "as_of": TIME,
+            "status": "declared", "association": "session_name_only",
+            "items": [
+                {"kind": "own", "text": "Integrate backend and frontend.",
+                 "source": "Operator scope directive", "evidence": "declared", "as_of": TIME},
+                {"kind": "completion_check", "text": "Run the browser workflow.",
+                 "source": "Operator scope directive", "evidence": "declared", "as_of": TIME,
+                 "outcome": "required", "check_key": "browser_path"},
+                {"kind": "handoff", "text": "Report to Trace.",
+                 "source": "Operator scope directive", "evidence": "declared", "as_of": TIME,
+                 "direction": "outgoing", "counterparty": "Trace"},
+                {"kind": "approval_gate", "text": "Escalate model selection.",
+                 "source": "Operator scope directive", "evidence": "declared", "as_of": TIME,
+                 "decision": "pending", "approver": "Zayed"},
+            ]}
+        return value
+
+    def test_generic_responsibility_model_is_bounded_and_session_only(self):
+        value = self._scope_snapshot()
+        clean = R.validate_snapshot(value)
+        model = next(n for n in clean["nodes"] if n["id"] == "session:sample")["responsibility_model"]
+        self.assertEqual(model["association"], "session_name_only")
+        self.assertEqual(model["items"][1]["outcome"], "required")
+        self.assertEqual(model["items"][1]["check_key"], "browser_path")
+        self.assertEqual(model["items"][2]["counterparty"], "Trace")
+        self.assertEqual(model["items"][3]["decision"], "pending")
+        self.assertFalse(any(i["kind"] == "completion_evidence" for i in model["items"]))
+        self.assertEqual(len(clean["edges"]), len(value["edges"]))
+        with_evidence = self._scope_snapshot()
+        completion = next(n for n in with_evidence["nodes"] if n["id"] == "session:sample")["responsibility_model"]
+        completion["items"].append({"kind": "completion_evidence", "text": "Browser check partly passed.",
+                                    "source": "Local check", "evidence": "checked", "as_of": TIME,
+                                    "outcome": "partial", "check_key": "browser_path"})
+        checked = R.validate_snapshot(with_evidence)
+        checked_items = next(n for n in checked["nodes"] if n["id"] == "session:sample")["responsibility_model"]["items"]
+        self.assertEqual(checked_items[-1]["check_key"], "browser_path")
+        approved = self._scope_snapshot()
+        gate = next(n for n in approved["nodes"] if n["id"] == "session:sample")["responsibility_model"]["items"][3]
+        gate.update(evidence="checked", decision="approved")
+        approved_items = next(n for n in R.validate_snapshot(approved)["nodes"]
+                              if n["id"] == "session:sample")["responsibility_model"]["items"]
+        self.assertEqual(approved_items[3]["decision"], "approved")
+        unspecified = self._scope_snapshot()
+        gate = next(n for n in unspecified["nodes"] if n["id"] == "session:sample")["responsibility_model"]["items"][3]
+        gate.pop("decision")
+        gate.pop("approver")
+        unspecified_items = next(n for n in R.validate_snapshot(unspecified)["nodes"]
+                                 if n["id"] == "session:sample")["responsibility_model"]["items"]
+        self.assertNotIn("decision", unspecified_items[3])
+        self.assertNotIn("approver", unspecified_items[3])
+        mutations = [
+            lambda m: m.update(session="other"),
+            lambda m: m.update(role="Read /private/role"),
+            lambda m: m.update(association="verified_agent"),
+            lambda m: m["items"][0].update(text="API_KEY=veryprivate"),
+            lambda m: m["items"][0].update(kind="unknown"),
+            lambda m: m["items"][0].update(outcome="passed"),
+            lambda m: m["items"][1].update(outcome="unknown"),
+            lambda m: m["items"][1].update(as_of="2026-99-99"),
+            lambda m: m["items"][1].update(check_key="bad-key"),
+            lambda m: m["items"].append(dict(m["items"][1])),
+            lambda m: m["items"][2].pop("counterparty"),
+            lambda m: m["items"][2].update(counterparty="/private/trace"),
+            lambda m: m["items"][3].update(decision="unverified"),
+            lambda m: m["items"][3].pop("approver"),
+            lambda m: m["items"][3].update(approver="/private/zayed"),
+            lambda m: m["items"][3].update(decision="approved"),
+            lambda m: m["items"][0].update(decision="pending", approver="Zayed"),
+            lambda m: m["items"].append({"kind": "completion_evidence", "text": "Other check.",
+                                         "source": "Local check", "evidence": "checked", "as_of": TIME,
+                                         "check_key": "other"}),
+            lambda m: m.update(items=m["items"] * 19),
+            lambda m: m.update(private_note="hidden"),
+        ]
+        for mutate in mutations:
+            bad = self._scope_snapshot()
+            model = next(n for n in bad["nodes"] if n["id"] == "session:sample")["responsibility_model"]
+            mutate(model)
+            with self.subTest(mutate=mutate), self.assertRaises(R.SnapshotError):
+                R.validate_snapshot(bad)
+        bad = self._scope_snapshot()
+        session = next(n for n in bad["nodes"] if n["id"] == "session:sample")
+        session["observed"] = False
+        with self.assertRaises(R.SnapshotError):
+            R.validate_snapshot(bad)
+        bad = self._scope_snapshot()
+        session = next(n for n in bad["nodes"] if n["id"] == "session:sample")
+        session["source_refs"].remove("infra:scope_brief:sample")
+        with self.assertRaises(R.SnapshotError):
+            R.validate_snapshot(bad)
+
+    def test_scope_source_outage_retains_dated_model_as_last_known(self):
+        prior = R.validate_snapshot(self._scope_snapshot())
+        current = copy.deepcopy(prior)
+        session = next(n for n in current["nodes"] if n["id"] == "session:sample")
+        session.pop("responsibility_model")
+        source = "infra:scope_brief:sample"
+        current["unknowns"].append({"id": "unknown:scope-brief", "kind": "source_unavailable",
+                                    "source": source, "as_of": TIME,
+                                    "detail": "Scope source unavailable."})
+        result = R._retain_unavailable_sources(current, prior, {source})
+        session = next(n for n in result["nodes"] if n["id"] == "session:sample")
+        self.assertEqual(session["last_known_responsibility_model"]["mission"],
+                         "Build the adopted product.")
+        self.assertIn("responsibility_model", session["stale_fields"])
+
     def test_dqr_scope_is_bounded_and_rejects_private_facts(self):
         value = snapshot()
         dqr = node("session:DQR", "session", "DQR", "host:sample", refs=["tmux", "infra:dqr_identity"],

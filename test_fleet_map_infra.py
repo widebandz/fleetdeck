@@ -109,6 +109,197 @@ class InfrastructureTests(unittest.TestCase):
                         "private.invalid:9000": {"Handlers": {"/": {"Proxy": "http://10.0.0.1:8783"}}}}})
         return None
 
+    def _install_brief(self):
+        def item(kind, text, evidence="declared", outcome=None, **detail):
+            value = {"kind": kind, "text": text, "source": "Zayed scope directive",
+                     "evidence": evidence, "as_of": TIME}
+            if outcome is not None:
+                value["outcome"] = outcome
+            value.update(detail)
+            return value
+        return {"version": I.SCOPE_BRIEF_VERSION, "session": "install",
+                "role": "Installation and runtime-integration specialist",
+                "mission": "Build and verify the adopted product on the host.",
+                "source": "Zayed scope directive", "as_of": TIME,
+                "status": "declared", "association": "session_name_only",
+                "items": [item("own", "Integrate the backend and frontend."),
+                          item("handoff", "Report evidence to Trace.",
+                               direction="outgoing", counterparty="Trace"),
+                          item("completion_check", "Verify a browser path.",
+                               outcome="required", check_key="browser_path"),
+                          item("approval_gate", "Escalate model selection before download.",
+                               decision="pending", approver="Zayed")]}
+
+    def test_session_scope_brief_is_declared_and_does_not_create_edges(self):
+        raw = snapshot()
+        raw["nodes"].append({"id": "session:install", "type": "session", "label": "install",
+                             "parent_id": "host:sample", "declared": False, "observed": True,
+                             "source_refs": ["tmux"], "observed_at": TIME})
+        brief_dir = self.base / "briefs"
+        brief_dir.mkdir()
+        (brief_dir / "install.json").write_text(json.dumps(self._install_brief()))
+        env = dict(self.env, FLEETDECK_FLEET_SCOPE_BRIEF_DIR=str(brief_dir))
+        clean = R.validate_snapshot(I.enrich(raw, env, self.runner))
+        install = next(n for n in clean["nodes"] if n["id"] == "session:install")
+        model = install["responsibility_model"]
+        self.assertEqual(model["association"], "session_name_only")
+        self.assertEqual(model["role"], "Installation and runtime-integration specialist")
+        self.assertEqual(model["items"][2]["outcome"], "required")
+        self.assertEqual(model["items"][1]["direction"], "outgoing")
+        self.assertEqual(model["items"][2]["check_key"], "browser_path")
+        self.assertEqual(model["items"][3]["decision"], "pending")
+        self.assertEqual(model["items"][3]["approver"], "Zayed")
+        self.assertFalse(any(i["kind"] == "completion_evidence" for i in model["items"]))
+        self.assertNotIn("registry", install)
+        self.assertFalse(any(e["from"] == "session:install" or e["to"] == "session:install"
+                             for e in clean["edges"]))
+        self.assertEqual(next(s for s in clean["sources"] if s["id"] == "infra:scope_brief:install")["status"], "available")
+        self.assertNotIn(str(brief_dir), json.dumps(clean))
+
+    def test_invalid_scope_brief_is_omitted_without_leaking_content(self):
+        raw = snapshot()
+        raw["nodes"].append({"id": "session:install", "type": "session", "label": "install",
+                             "parent_id": "host:sample", "declared": False, "observed": True,
+                             "source_refs": ["tmux"], "observed_at": TIME})
+        brief_dir = self.base / "briefs"
+        brief_dir.mkdir()
+        path = brief_dir / "install.json"
+        env = dict(self.env, FLEETDECK_FLEET_SCOPE_BRIEF_DIR=str(brief_dir))
+        variants = []
+        wrong = self._install_brief()
+        wrong["session"] = "other"
+        variants.append(wrong)
+        private = self._install_brief()
+        private["items"][0]["text"] = f"Read {self.base / 'private.txt'}"
+        variants.append(private)
+        unknown = self._install_brief()
+        unknown["items"][0]["kind"] = "deploys"
+        variants.append(unknown)
+        outcome = self._install_brief()
+        outcome["items"][0]["outcome"] = "passed"
+        variants.append(outcome)
+        incomplete_handoff = self._install_brief()
+        incomplete_handoff["items"][1].pop("counterparty")
+        variants.append(incomplete_handoff)
+        private_counterparty = self._install_brief()
+        private_counterparty["items"][1]["counterparty"] = str(self.base / "private")
+        variants.append(private_counterparty)
+        unmatched_evidence = self._install_brief()
+        unmatched_evidence["items"].append({"kind": "completion_evidence", "text": "Build ran.",
+                                             "source": "local check", "evidence": "checked",
+                                             "as_of": TIME, "outcome": "partial",
+                                             "check_key": "unknown_check"})
+        variants.append(unmatched_evidence)
+        duplicate_check = self._install_brief()
+        duplicate_check["items"].append(dict(duplicate_check["items"][2]))
+        variants.append(duplicate_check)
+        wrong_decision = self._install_brief()
+        wrong_decision["items"][3]["decision"] = "unverified"
+        variants.append(wrong_decision)
+        incomplete_approval = self._install_brief()
+        incomplete_approval["items"][3].pop("approver")
+        variants.append(incomplete_approval)
+        private_approver = self._install_brief()
+        private_approver["items"][3]["approver"] = str(self.base / "private")
+        variants.append(private_approver)
+        inferred_approval = self._install_brief()
+        inferred_approval["items"][3]["decision"] = "approved"
+        variants.append(inferred_approval)
+        misplaced_decision = self._install_brief()
+        misplaced_decision["items"][0]["decision"] = "pending"
+        misplaced_decision["items"][0]["approver"] = "Zayed"
+        variants.append(misplaced_decision)
+        extra = self._install_brief()
+        extra["credential"] = "hidden"
+        variants.append(extra)
+        for value in variants:
+            with self.subTest(value=value.get("session"), kind=value["items"][0]["kind"]):
+                path.write_text(json.dumps(value))
+                clean = R.validate_snapshot(I.enrich(raw, env, self.runner))
+                install = next(n for n in clean["nodes"] if n["id"] == "session:install")
+                self.assertNotIn("responsibility_model", install)
+                self.assertTrue(any(u["kind"] == "invalid_metadata" and
+                                    u["source"] == "infra:scope_brief:install" for u in clean["unknowns"]))
+                self.assertNotIn(str(self.base), json.dumps(clean))
+                self.assertNotIn("hidden", json.dumps(clean))
+        path.unlink()
+        clean = R.validate_snapshot(I.enrich(raw, env, self.runner))
+        install = next(n for n in clean["nodes"] if n["id"] == "session:install")
+        self.assertNotIn("responsibility_model", install)
+        self.assertFalse(any(s["id"] == "infra:scope_brief:install" for s in clean["sources"]))
+
+    def test_unreadable_scope_brief_marks_source_unavailable(self):
+        raw = snapshot()
+        raw["nodes"].append({"id": "session:install", "type": "session", "label": "install",
+                             "parent_id": "host:sample", "declared": False, "observed": True,
+                             "source_refs": ["tmux"], "observed_at": TIME})
+        brief_dir = self.base / "briefs"
+        brief_dir.mkdir()
+        path = brief_dir / "install.json"
+        path.write_text(json.dumps(self._install_brief()))
+        original = I.read_text
+
+        def unreadable(candidate, max_bytes=64_000):
+            return None if candidate == path else original(candidate, max_bytes)
+
+        env = dict(self.env, FLEETDECK_FLEET_SCOPE_BRIEF_DIR=str(brief_dir))
+        with mock.patch.object(I, "read_text", side_effect=unreadable):
+            clean = R.validate_snapshot(I.enrich(raw, env, self.runner))
+        install = next(n for n in clean["nodes"] if n["id"] == "session:install")
+        self.assertNotIn("responsibility_model", install)
+        self.assertTrue(any(u["kind"] == "source_unavailable" and
+                            u["source"] == "infra:scope_brief:install" for u in clean["unknowns"]))
+        self.assertNotIn(str(path), json.dumps(clean))
+
+    def test_malformed_scope_brief_keeps_only_dated_last_known_model(self):
+        raw = snapshot()
+        raw["nodes"].append({"id": "session:install", "type": "session", "label": "install",
+                             "parent_id": "host:sample", "declared": False, "observed": True,
+                             "source_refs": ["tmux"], "observed_at": TIME})
+        brief_dir = self.base / "briefs"
+        brief_dir.mkdir()
+        path = brief_dir / "install.json"
+        path.write_text(json.dumps(self._install_brief()))
+        env = dict(self.env, FLEETDECK_FLEET_SCOPE_BRIEF_DIR=str(brief_dir))
+        prior = I.enrich(raw, env, self.runner)
+        unsafe = self._install_brief()
+        unsafe["items"][0]["text"] = f"Read {self.base / 'secret.txt'}"
+        path.write_text(json.dumps(unsafe))
+        current = I.enrich(raw, env, self.runner)
+        values = iter([prior, current, current])
+        times = iter([0, 4, 8])
+        cache = R.FleetMapCache(collector=lambda: next(values), clock=lambda: next(times))
+        self.assertEqual(cache.get()[1]["status"], "fresh")
+        result = cache.get()[1]
+        install = next(n for n in result["nodes"] if n["id"] == "session:install")
+        self.assertEqual(result["status"], "partial")
+        self.assertNotIn("responsibility_model", install)
+        self.assertEqual(install["last_known_responsibility_model"]["mission"],
+                         "Build and verify the adopted product on the host.")
+        self.assertIn("responsibility_model", install["stale_fields"])
+        self.assertNotIn(str(self.base), json.dumps(result))
+        repeated = cache.get()[1]
+        install_again = next(n for n in repeated["nodes"] if n["id"] == "session:install")
+        self.assertEqual(install_again["last_known_responsibility_model"]["mission"],
+                         "Build and verify the adopted product on the host.")
+
+    def test_many_scope_briefs_keep_snapshot_bounded_and_readable(self):
+        raw = snapshot()
+        brief_dir = self.base / "briefs"
+        brief_dir.mkdir()
+        for index in range(45):
+            name = f"scope{index:02d}"
+            raw["nodes"].append({"id": f"session:{name}", "type": "session", "label": name,
+                                 "parent_id": "host:sample", "declared": False, "observed": True,
+                                 "source_refs": ["tmux"], "observed_at": TIME})
+            brief = self._install_brief()
+            brief["session"] = name
+            (brief_dir / f"{name}.json").write_text(json.dumps(brief))
+        env = dict(self.env, FLEETDECK_FLEET_SCOPE_BRIEF_DIR=str(brief_dir))
+        clean = R.validate_snapshot(I.enrich(raw, env, self.runner))
+        self.assertEqual(sum("responsibility_model" in n for n in clean["nodes"]), 45)
+        self.assertLessEqual(len(clean["sources"]), R.MAX_SOURCES)
+
     def _dqr_fixture(self):
         raw = snapshot()
         raw["nodes"].extend([

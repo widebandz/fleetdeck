@@ -54,6 +54,32 @@ browser. A listener on a registered port does not verify which process owns
 it; a configured route or sender does not prove a request or message was
 delivered.
 
+### Optional responsibility briefs
+
+The infrastructure stage can read a locally authored scope brief from
+`~/.config/agent-session-memory/scope-briefs/<session>.json` (or the private
+directory named by `FLEETDECK_FLEET_SCOPE_BRIEF_DIR`). Its schema is
+`fleet-map.scope-brief.v1`: `session`, `role`, `mission`, `source`, `as_of`,
+`status: "declared"`, `association: "session_name_only"`, and bounded `items`.
+Each item has a fixed `kind`, `text`, `source`, `evidence`, and `as_of`.
+Handoffs can name an incoming or outgoing direction and a counterparty label.
+Completion checks and evidence can carry an `outcome` and shared `check_key`
+so a dated result points to its required check. Approval gates can carry an
+explicit `decision` and `approver`; a pending decision is not approval. The supported
+kinds cover owned work, inputs, outputs, boundaries, dependencies, approval
+gates, tool requirements and observed availability, handoffs, completion
+checks, and completion evidence. Keep the file private and write only facts
+safe to show on the tailnet map. The browser allowlist rejects private values,
+invalid kinds, and oversized briefs.
+
+A brief attaches only to an observed session with the matching name. It is a
+dated declaration, not an identity card or verified agent binding. A handoff
+counterparty label is not a verified identity. The brief does not add graph
+pipes or certify that a requirement was met. A required
+completion check stays separate from dated evidence that a check actually
+ran. If an existing brief becomes unreadable or invalid, the map labels a retained
+prior brief as last known. Removing a brief removes its model.
+
 To enable those stages, export the following before running the preview
 command above:
 

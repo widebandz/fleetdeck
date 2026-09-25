@@ -36,6 +36,15 @@ PRIVATE = re.compile(r"(?:\b(?:\d{1,3}\.){3}\d{1,3}\b|\+?\d{10,}\b|"
                      r"\b(?:api[_ -]?key|access[_ -]?token|secret|password|authorization)\s*[:=]\s*[^\s,;]+)", re.I)
 SERVICE_GROUPS = {"fleet", "apps", "models", "data"}
 SERVICE_KINDS = {"app", "api", "web"}
+SCOPE_BRIEF_VERSION = "fleet-map.scope-brief.v1"
+SCOPE_BRIEF_KINDS = {"own", "input", "output", "boundary", "dependency",
+                     "approval_gate", "tool_requirement", "tool_available",
+                     "handoff", "completion_check", "completion_evidence"}
+SCOPE_BRIEF_EVIDENCE = {"declared", "observed", "checked"}
+SCOPE_BRIEF_OUTCOMES = {"required", "pending", "passed", "failed", "blocked", "partial"}
+SCOPE_APPROVAL_DECISIONS = {"pending", "approved", "rejected"}
+SCOPE_BRIEF_MAX_ITEMS = 36
+SCOPE_BRIEF_CHECK_KEY = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 
 
 def stamp() -> str:
@@ -73,6 +82,97 @@ def read_json(path: Path, max_bytes: int = 512_000) -> dict | None:
     except ValueError:
         return None
     return value if isinstance(value, dict) else None
+
+
+def _scope_date(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            dt.date.fromisoformat(value)
+            return True
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", value):
+            dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+            return True
+    except ValueError:
+        pass
+    return False
+
+
+def _scope_brief(value: Any, session: str) -> dict | None:
+    """Validate a small operator brief before exposing any of its prose."""
+    keys = {"version", "session", "role", "mission", "source", "as_of",
+            "status", "association", "items"}
+    if (not isinstance(value, dict) or set(value) != keys
+            or value.get("version") != SCOPE_BRIEF_VERSION
+            or not isinstance(value.get("session"), str)
+            or value.get("session") != session
+            or value.get("status") != "declared"
+            or value.get("association") != "session_name_only"
+            or safe_text(value.get("role"), 120) is None
+            or safe_text(value.get("mission"), 240) is None
+            or safe_text(value.get("source"), 100) is None
+            or not _scope_date(value.get("as_of"))):
+        return None
+    raw_items = value.get("items")
+    if not isinstance(raw_items, list) or not 1 <= len(raw_items) <= SCOPE_BRIEF_MAX_ITEMS:
+        return None
+    items = []
+    check_keys = set()
+    for item in raw_items:
+        if (not isinstance(item, dict)
+                or not {"kind", "text", "source", "evidence", "as_of"} <= set(item)
+                or set(item) - {"kind", "text", "source", "evidence", "as_of", "outcome",
+                                "direction", "counterparty", "check_key", "decision", "approver"}
+                or not isinstance(item.get("kind"), str)
+                or item["kind"] not in SCOPE_BRIEF_KINDS
+                or safe_text(item.get("text"), 240) is None
+                or safe_text(item.get("source"), 100) is None
+                or not isinstance(item.get("evidence"), str)
+                or item["evidence"] not in SCOPE_BRIEF_EVIDENCE
+                or not _scope_date(item.get("as_of"))):
+            return None
+        if "outcome" in item and (item["kind"] not in {"completion_check", "completion_evidence"}
+                                  or not isinstance(item["outcome"], str)
+                                  or item["outcome"] not in SCOPE_BRIEF_OUTCOMES):
+            return None
+        if item["kind"] == "handoff":
+            if (("direction" in item) != ("counterparty" in item)):
+                return None
+            if "direction" in item and (item["direction"] not in ("incoming", "outgoing")
+                                        or safe_text(item["counterparty"], 100) is None):
+                return None
+        elif "direction" in item or "counterparty" in item:
+            return None
+        if item["kind"] == "approval_gate":
+            if ("decision" in item) != ("approver" in item):
+                return None
+            if "decision" in item and (not isinstance(item["decision"], str)
+                                       or item["decision"] not in SCOPE_APPROVAL_DECISIONS
+                                       or safe_text(item["approver"], 100) is None
+                                       or (item["decision"] != "pending" and item["evidence"] == "declared")):
+                return None
+        elif "decision" in item or "approver" in item:
+            return None
+        if item["kind"] in {"completion_check", "completion_evidence"}:
+            if "check_key" in item and (not isinstance(item["check_key"], str)
+                                        or not SCOPE_BRIEF_CHECK_KEY.fullmatch(item["check_key"])):
+                return None
+            if item["kind"] == "completion_check" and "check_key" in item:
+                if item["check_key"] in check_keys:
+                    return None
+                check_keys.add(item["check_key"])
+        elif "check_key" in item:
+            return None
+        items.append({key: item[key] for key in ("kind", "text", "source", "evidence", "as_of",
+                                                 "outcome", "direction", "counterparty", "check_key",
+                                                 "decision", "approver")
+                      if key in item})
+    if any(item["kind"] == "completion_evidence" and "check_key" in item
+           and item["check_key"] not in check_keys for item in items):
+        return None
+    return {key: value[key] for key in ("version", "session", "role", "mission", "source",
+                                        "as_of", "status", "association")} | {"items": items}
 
 
 def run_text(argv: list[str], timeout: float = 4.0, max_bytes: int = 512_000) -> str | None:
@@ -634,6 +734,60 @@ def _dqr_path(env: dict[str, str], key: str, default: Path) -> Path | None:
     return path if path.is_absolute() else None
 
 
+def _scope_briefs(graph: Graph, env: dict[str, str]) -> None:
+    """Attach local role briefs to observed sessions by exact tmux name only.
+
+    A brief describes a declared responsibility model. It never verifies an
+    agent occupant or creates tool, dependency, or handoff graph edges.
+    """
+    configured = env.get("FLEETDECK_FLEET_SCOPE_BRIEF_DIR")
+    memory = Path(env.get("TM_MEMORY_DIR") or Path.home() / ".config/agent-session-memory")
+    directory = Path(configured).expanduser() if configured else memory / "scope-briefs"
+    if not directory.is_absolute():
+        graph.unknown("invalid_metadata", "infra:scope_briefs",
+                      "Scope brief directory is not absolute; role briefs were omitted.")
+        return
+    for session_node in graph.data["nodes"]:
+        if (not isinstance(session_node, dict) or session_node.get("type") != "session"
+                or session_node.get("observed") is not True):
+            continue
+        session = session_node.get("label")
+        if (not isinstance(session, str) or not NAME.fullmatch(session)
+                or session_node.get("id") != f"session:{session}"):
+            continue
+        path = directory / f"{session}.json"
+        if not path.exists() and not path.is_symlink():
+            continue
+        source_id = f"infra:scope_brief:{session}"
+        if path.is_symlink():
+            graph.source(source_id, None, path,
+                         "Scope brief is a link; responsibility model was omitted.")
+            continue
+        raw_text = read_text(path, 16_000)
+        if raw_text is None:
+            graph.source(source_id, False, path,
+                         "Scope brief could not be read; responsibility model is unavailable.")
+            continue
+        try:
+            raw_brief = json.loads(raw_text)
+        except ValueError:
+            raw_brief = None
+        brief = _scope_brief(raw_brief, session)
+        if brief is None:
+            graph.source(source_id, None, path,
+                         "Scope brief invalid or unreadable; responsibility model was omitted.")
+            continue
+        refs = session_node.get("source_refs")
+        if not isinstance(refs, list) or (source_id not in refs and len(refs) >= 20):
+            graph.source(source_id, None, path,
+                         "Session has no room for scope provenance; responsibility model was omitted.")
+            continue
+        graph.source(source_id, True, path)
+        session_node["responsibility_model"] = brief
+        if source_id not in refs:
+            refs.append(source_id)
+
+
 def _dqr_scope(graph: Graph, env: dict[str, str], runner) -> None:
     """Project DQR's change-request scope without private chat or auth data.
 
@@ -868,6 +1022,7 @@ def enrich(raw: dict, env: dict[str, str] | None = None, runner=run_text) -> dic
     map_port = _jobs(graph, env, runner, focus_sid, root, outbox, by_port, listeners)
     _tailscale(graph, env, runner, by_port, map_port)
     _dqr_scope(graph, env, runner)
+    _scope_briefs(graph, env)
     return graph.finish()
 
 

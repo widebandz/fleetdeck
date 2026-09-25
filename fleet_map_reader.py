@@ -33,6 +33,7 @@ REMOTE_TIMEOUT = 25.0
 MIN_INTERVAL = 3.0
 MAX_NODES = 2000
 MAX_EDGES = 4000
+MAX_SOURCES = 128
 DQR_SCOPE_KEYS = {"requester", "operator", "chat_binding", "git_identity",
                   "repository", "stack", "runtime_scope", "deployment"}
 DQR_SCOPE_VALUES = {
@@ -50,6 +51,15 @@ DQR_SCOPE_EVIDENCE = {"requester": "declared", "operator": "declared",
                       "chat_binding": "checked", "stack": "declared",
                       "runtime_scope": "checked",
                       "deployment": "declared"}
+SCOPE_BRIEF_VERSION = "fleet-map.scope-brief.v1"
+SCOPE_BRIEF_KINDS = {"own", "input", "output", "boundary", "dependency",
+                     "approval_gate", "tool_requirement", "tool_available",
+                     "handoff", "completion_check", "completion_evidence"}
+SCOPE_BRIEF_EVIDENCE = {"declared", "observed", "checked"}
+SCOPE_BRIEF_OUTCOMES = {"required", "pending", "passed", "failed", "blocked", "partial"}
+SCOPE_APPROVAL_DECISIONS = {"pending", "approved", "rejected"}
+SCOPE_BRIEF_MAX_ITEMS = 36
+SCOPE_BRIEF_CHECK_KEY = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 
 _PRIVATE_VALUE = re.compile(
     r"(?:\b(?:\d{1,3}\.){3}\d{1,3}\b|\+?\d{10,}\b|"
@@ -84,6 +94,115 @@ def _safe_id(value):
     if not value or not _ID.fullmatch(value):
         raise SnapshotError("invalid id")
     return value
+
+
+def _scope_date(value):
+    value = _safe_text(value, limit=20)
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value or ""):
+            dt.date.fromisoformat(value)
+            return value
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", value or ""):
+            dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+            return value
+    except ValueError:
+        pass
+    raise SnapshotError("invalid scope date")
+
+
+def _responsibility_model(value, node):
+    """Allowlist a declared session brief without elevating it to agent identity."""
+    keys = {"version", "session", "role", "mission", "source", "as_of",
+            "status", "association", "items"}
+    if (node["type"] != "session" or node["observed"] is not True
+            or not isinstance(value, dict) or set(value) != keys
+            or value.get("version") != SCOPE_BRIEF_VERSION
+            or not isinstance(value.get("session"), str)
+            or value.get("session") != node["label"]
+            or node["id"] != "session:" + value["session"]
+            or value.get("status") != "declared"
+            or value.get("association") != "session_name_only"
+            or f"infra:scope_brief:{value['session']}" not in node["source_refs"]):
+        raise SnapshotError("invalid responsibility model")
+    role = _safe_text(value.get("role"), limit=120)
+    mission = _safe_text(value.get("mission"), limit=240)
+    source = _safe_text(value.get("source"), limit=100)
+    as_of = _scope_date(value.get("as_of"))
+    if not role or not mission or not source:
+        raise SnapshotError("invalid responsibility model")
+    raw_items = value.get("items")
+    if not isinstance(raw_items, list) or not 1 <= len(raw_items) <= SCOPE_BRIEF_MAX_ITEMS:
+        raise SnapshotError("invalid responsibility items")
+    items = []
+    check_keys = set()
+    for item in raw_items:
+        if (not isinstance(item, dict)
+                or not {"kind", "text", "source", "evidence", "as_of"} <= set(item)
+                or set(item) - {"kind", "text", "source", "evidence", "as_of", "outcome",
+                                "direction", "counterparty", "check_key", "decision", "approver"}
+                or not isinstance(item.get("kind"), str)
+                or item["kind"] not in SCOPE_BRIEF_KINDS
+                or not isinstance(item.get("evidence"), str)
+                or item["evidence"] not in SCOPE_BRIEF_EVIDENCE):
+            raise SnapshotError("invalid responsibility item")
+        clean = {"kind": item["kind"],
+                 "text": _safe_text(item.get("text"), limit=240),
+                 "source": _safe_text(item.get("source"), limit=100),
+                 "evidence": item["evidence"], "as_of": _scope_date(item.get("as_of"))}
+        if not clean["text"] or not clean["source"]:
+            raise SnapshotError("invalid responsibility item")
+        if "outcome" in item:
+            if (item["kind"] not in {"completion_check", "completion_evidence"}
+                    or not isinstance(item["outcome"], str)
+                    or item["outcome"] not in SCOPE_BRIEF_OUTCOMES):
+                raise SnapshotError("invalid completion outcome")
+            clean["outcome"] = item["outcome"]
+        if item["kind"] == "handoff":
+            if ("direction" in item) != ("counterparty" in item):
+                raise SnapshotError("incomplete handoff detail")
+            if "direction" in item:
+                if item["direction"] not in ("incoming", "outgoing"):
+                    raise SnapshotError("invalid handoff direction")
+                counterparty = _safe_text(item["counterparty"], limit=100)
+                if not counterparty:
+                    raise SnapshotError("invalid handoff counterparty")
+                clean["direction"] = item["direction"]
+                clean["counterparty"] = counterparty
+        elif "direction" in item or "counterparty" in item:
+            raise SnapshotError("invalid handoff detail")
+        if item["kind"] == "approval_gate":
+            if ("decision" in item) != ("approver" in item):
+                raise SnapshotError("incomplete approval decision")
+            if "decision" in item:
+                if (not isinstance(item["decision"], str)
+                        or item["decision"] not in SCOPE_APPROVAL_DECISIONS):
+                    raise SnapshotError("invalid approval decision")
+                approver = _safe_text(item["approver"], limit=100)
+                if not approver or (item["decision"] != "pending" and item["evidence"] == "declared"):
+                    raise SnapshotError("invalid approval provenance")
+                clean["decision"] = item["decision"]
+                clean["approver"] = approver
+        elif "decision" in item or "approver" in item:
+            raise SnapshotError("invalid approval detail")
+        if item["kind"] in {"completion_check", "completion_evidence"}:
+            if "check_key" in item:
+                check_key = item["check_key"]
+                if not isinstance(check_key, str) or not SCOPE_BRIEF_CHECK_KEY.fullmatch(check_key):
+                    raise SnapshotError("invalid completion check key")
+                if item["kind"] == "completion_check":
+                    if check_key in check_keys:
+                        raise SnapshotError("duplicate completion check key")
+                    check_keys.add(check_key)
+                clean["check_key"] = check_key
+        elif "check_key" in item:
+            raise SnapshotError("invalid completion check key")
+        items.append(clean)
+    if any(item["kind"] == "completion_evidence" and "check_key" in item
+           and item["check_key"] not in check_keys for item in items):
+        raise SnapshotError("unmatched completion evidence")
+    return {"version": SCOPE_BRIEF_VERSION, "session": value["session"],
+            "role": role, "mission": mission, "source": source, "as_of": as_of,
+            "status": "declared", "association": "session_name_only", "items": items}
 
 
 def _optional_bool(value):
@@ -228,6 +347,8 @@ def validate_snapshot(raw):
                 raise SnapshotError("invalid responsibilities time")
             node["responsibilities"] = {"items": entries, "source": duty_source,
                                         "as_of": as_of, "status": "declared"}
+        if "responsibility_model" in item:
+            node["responsibility_model"] = _responsibility_model(item["responsibility_model"], node)
         if "scope" in item:
             if node_id != "session:DQR" or node_type != "session" or not isinstance(item["scope"], dict):
                 raise SnapshotError("invalid DQR scope")
@@ -353,7 +474,7 @@ def validate_snapshot(raw):
 
     sources = []
     for item in raw.get("sources") or []:
-        if not isinstance(item, dict) or len(sources) >= 40:
+        if not isinstance(item, dict) or len(sources) >= MAX_SOURCES:
             raise SnapshotError("invalid source list")
         source = _project_map(item, text_keys=("id", "status", "as_of", "source_mtime"))
         if source.get("status") not in ("available", "unavailable", "partial") or not source.get("id"):
@@ -599,8 +720,11 @@ def _retain_unavailable_sources(current, previous, unavailable):
     prior_nodes = {node["id"]: node for node in previous["nodes"]}
     current_nodes = {node["id"]: node for node in current["nodes"]}
     for node_id, old in prior_nodes.items():
+        scope_ref = "infra:scope_brief:" + old["label"] if old["type"] == "session" else None
         affected = (any(_from_unavailable(ref, unavailable) for ref in old["source_refs"])
-                    or ("registry" in unavailable and "registry" in old))
+                    or ("registry" in unavailable and "registry" in old)
+                    or (scope_ref is not None and "last_known_responsibility_model" in old
+                        and _from_unavailable(scope_ref, unavailable)))
         if not affected:
             continue
         if old["type"] == "workspace" and "work_leases" in old["source_refs"]:
@@ -641,6 +765,10 @@ def _retain_unavailable_sources(current, previous, unavailable):
             if ({"infra", "infra:trace_identity"} & unavailable) and "responsibilities" in old:
                 now["last_known_responsibilities"] = copy.deepcopy(old["responsibilities"])
                 now.setdefault("stale_fields", []).append("responsibilities")
+            prior_scope = old.get("responsibility_model") or old.get("last_known_responsibility_model")
+            if (prior_scope and ("infra" in unavailable or (scope_ref and scope_ref in unavailable))):
+                now["last_known_responsibility_model"] = copy.deepcopy(prior_scope)
+                now.setdefault("stale_fields", []).append("responsibility_model")
             if "sessions_conf" in unavailable and now["declared"] is None and old["declared"] is not None:
                 now["last_known_declared"] = old["declared"]
             if "tmux" in unavailable and old["observed"] is not None:
