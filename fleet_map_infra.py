@@ -2,8 +2,9 @@
 """Optional read-only infrastructure facts for the fleet map.
 
 Every relation is derived from an explicit local declaration or a bounded
-observation. This module never emits addresses, raw paths, ports, chat IDs,
-instruction contents, queued messages, or process command lines.
+observation. This module never emits addresses, raw paths, ports, private chat
+handles, instruction contents, queued messages, or process command lines. A
+single bounded local DQR chat number is projected after three-source agreement.
 """
 
 from __future__ import annotations
@@ -633,22 +634,12 @@ def _dqr_path(env: dict[str, str], key: str, default: Path) -> Path | None:
     return path if path.is_absolute() else None
 
 
-def _dqr_assignment(script: str | None, key: str) -> str | None:
-    if not script:
-        return None
-    quoted = _assignment(script, key)
-    if quoted is not None:
-        return quoted
-    found = re.findall(r"^" + re.escape(key) + r"=([A-Za-z0-9_./-]+)(?:\s*(?:#.*)?)?$", script, re.M)
-    return found[0] if len(found) == 1 else None
-
-
 def _dqr_scope(graph: Graph, env: dict[str, str], runner) -> None:
-    """Project a bounded DQR example without exposing private chat or auth data.
+    """Project DQR's change-request scope without private chat or auth data.
 
-    The account and pipeline claims below require agreement among independent
-    local declarations. No message, credential, participant handle, or raw
-    filesystem path is copied into the snapshot.
+    The card's separate image work is disclosed as out-of-scope drift, not
+    connected to this focused change-request graph. No message, credential,
+    participant handle, or raw filesystem path is copied into the snapshot.
     """
     session = next((n for n in graph.data["nodes"] if isinstance(n, dict)
                     and n.get("id") == "session:DQR" and n.get("type") == "session"), None)
@@ -668,7 +659,6 @@ def _dqr_scope(graph: Graph, env: dict[str, str], runner) -> None:
     bind_path = _dqr_path(env, "FLEETDECK_FLEET_DQR_CHATBIND",
                           Path(env.get("TM_CHATBIND") or home / ".imsg-chatbind.json"))
     bind_script_path = _dqr_path(env, "FLEETDECK_FLEET_DQR_CHATBIND_SCRIPT", home / "bin/imsg-chatbind")
-    media_path = _dqr_path(env, "FLEETDECK_FLEET_DQR_MEDIA_SCRIPT", home / "bin/dqr-media")
     push_path = _dqr_path(env, "FLEETDECK_FLEET_DQR_PUSH_SCRIPT", home / "bin/dqr-push")
     repo = _dqr_path(env, "FLEETDECK_FLEET_DQR_REPO", home / "dailyquranreading")
 
@@ -676,19 +666,37 @@ def _dqr_scope(graph: Graph, env: dict[str, str], runner) -> None:
     card = _card_fields(card_text) if card_text else {}
     card_ok = card.get("session") == "DQR"
     graph.source("infra:dqr_identity", card_ok, card_path,
-                 "DQR identity card unavailable or mismatched; ownership and policy are unknown.")
-    if card_ok:
-        owner = card.get("owner")
-        if (isinstance(owner, str)
-                and re.fullmatch(r"dailyquranreading\.com\s+[—-]\s+[A-Za-z][A-Za-z .'-]{1,60} engagement", owner)
-                and safe_text(owner, 100)):
-            fact("engagement_owner", owner, "declared", "identity:DQR#owner")
-        duties = _responsibilities(card_text)
-        if duties:
-            session["responsibilities"] = {"items": duties, "source": "infra:dqr_identity",
-                                            "as_of": graph.at, "status": "declared"}
-            if "infra:dqr_identity" not in session["source_refs"]:
-                session["source_refs"].append("infra:dqr_identity")
+                 "DQR identity card unavailable or mismatched; client label and repo root are unknown.")
+    # The collector faithfully lists every card tool. This focused map is the
+    # DQR change-request path; retain a dated drift note instead of implying
+    # its separate image script or draft machinery is part of that path.
+    session.pop("responsibilities", None)
+    session.pop("last_known_responsibilities", None)
+    # Remove only the DQR edges created by the older scope projection. Other
+    # sessions may use these relation types, so filtering by type would erase
+    # unrelated facts from the fleet graph.
+    omitted_edge_ids = {"holds_draft:dqr", "approves_draft:dqr", "releases_reply:dqr",
+                        "stages_media:dqr", "writes_asset:dqr", "invokes_tool:dqr"}
+    card_tools = card.get("tools") if card_ok else None
+    if isinstance(card_tools, str):
+        card_tool_names = {part.strip() for part in card_tools.split(",")}
+    elif isinstance(card_tools, list):
+        card_tool_names = set(card_tools)
+    else:
+        card_tool_names = set()
+    media_card_declared = "dqr-media" in card_tool_names
+    graph.data["edges"] = [e for e in graph.data["edges"] if isinstance(e, dict)
+                           and e.get("id") not in omitted_edge_ids
+                           and not (e.get("type") == "uses_tool" and e.get("from") == "session:DQR"
+                                    and e.get("to") == "tool:dqr-media")]
+    graph.edges = {e["id"] for e in graph.data["edges"]}
+    omitted_nodes = {"chat:dqr-approval", "data:dqr-held-drafts"}
+    omitted_nodes.add("tool:dqr-media")
+    omitted_nodes = {node_id for node_id in omitted_nodes
+                     if not any(node_id in (e.get("from"), e.get("to")) for e in graph.data["edges"])}
+    graph.data["nodes"] = [n for n in graph.data["nodes"] if isinstance(n, dict)
+                           and n.get("id") not in omitted_nodes]
+    graph.nodes = {n["id"] for n in graph.data["nodes"]}
 
     binding = read_json(bind_path) if bind_path else None
     entries = binding.get("bound") if isinstance(binding, dict) else None
@@ -706,79 +714,53 @@ def _dqr_scope(graph: Graph, env: dict[str, str], runner) -> None:
     unique_chat_id = bool(bound and isinstance(entries, list) and
                           sum(isinstance(b, dict) and b.get("chat_id") == bound["chat_id"]
                               for b in entries) == 1)
-    bind_ok = bool(chat_matches_card and bound_edge and bound_node in graph.nodes and unique_chat_id)
+    bind_ok = bool(chat_matches_card and bound_edge and bound_node in graph.nodes and unique_chat_id
+                   and 0 < bound["chat_id"] <= 1_000_000)
     graph.source("infra:dqr_chatbind", bind_ok, bind_path,
                  "DQR bound chat, card, and collector route do not agree; chat scope is unknown.")
     bind_script = read_text(bind_script_path, 128_000) if bind_script_path else None
     script_ok = bool(bind_script and all(marker in bind_script for marker in
-                     ("def private_draft_hold", "def hold_draft", "def handle_approval",
-                      "def validate_bound_target", "stage_images(incoming", "send_to_bound_chat",
-                      "if is_operator(sender) and chat_id == OPERATOR_CHAT_ID:",
-                      'pend.get("approval_chat_id") == chat_id',
-                      'live.get("guid") != b.get("guid")',
-                      "expected and actual != expected")))
+                     ("def handle_record", "if is_operator(sender):",
+                      'deliver_to_session(b.get("session", "main"), text, chat_id, sender=sender)',
+                      "hold_draft(b, sender, text, draft)")))
     graph.source("infra:dqr_chatbind_script", script_ok, bind_script_path,
-                 "DQR chat handler logic unavailable; approval and media routes are unknown.")
-
-    approval_ok = False
-    media_bound = False
+                 "DQR sender-specific chat handling is unavailable; pane routing is unknown.")
     if bind_ok:
-        fact("chat_binding", "DQR group chat configured; exact ID hidden", "declared", "chatbind+DQR-card")
+        fact("chat_binding", "DQR bound chat configured; local ID shown on channel", "checked",
+             "chatbind+DQR-card")
+        chat_node = next(n for n in graph.data["nodes"] if n.get("id") == bound_node)
+        chat_node["local_chat_id"] = bound["chat_id"]
+        if "infra:dqr_chatbind" not in chat_node["source_refs"]:
+            chat_node["source_refs"].append("infra:dqr_chatbind")
         label = bound.get("label")
         operator = binding.get("operator")
         if (isinstance(operator, str) and operator and isinstance(label, str)
                 and re.match(r"^DQR\s*[—-]\s*Zayed\s*\+\s*Imam El\b", label)):
             fact("operator", "Zayed (configured operator)", "declared", "chatbind#operator")
-        parts = bound.get("participants")
-        aliases = binding.get("operator_aliases")
-        if (isinstance(parts, list) and 1 <= len(parts) <= 12
-                and all(isinstance(v, str) and 1 <= len(v) <= 120 for v in parts)
-                and isinstance(aliases, list) and len(aliases) <= 12):
-            def handle(value: str) -> str:
-                digits = re.sub(r"\D", "", value)
-                return digits[-10:] if len(digits) >= 10 else value.strip().lower()
-            operator_keys = {handle(v) for v in [operator, *aliases] if isinstance(v, str)}
-            operator_count = sum(handle(v) in operator_keys for v in parts)
-            fact("participants", f"{len(parts)} configured handles: {operator_count} operator aliases, "
-                 f"{len(parts)-operator_count} other; handle-to-person mapping unverified",
-                 "checked", "chatbind#participants")
-        approval_id = bound.get("approval_chat_id")
-        approvals = [b for b in entries if isinstance(b, dict)
-                     and type(b.get("chat_id")) is int and b["chat_id"] == approval_id]
-        approval_ok = bool(script_ok and len(approvals) == 1 and approval_id != bound["chat_id"]
-                           and approval_id == binding.get("operator_chat_id")
-                           and bound.get("external_mode") == "private-draft-and-hold")
-        media_bound = bound.get("media") is True
-        if approval_ok:
-            fact("reply_approval", "External replies held for an exact operator command in a separate private chat",
-                 "declared", "chatbind+imsg-chatbind")
-            graph.node("chat:dqr-approval", "chat", "DQR private approval chat", "infra:dqr_chatbind",
-                       kind="private operator channel", status="configured")
-            graph.node("data:dqr-held-drafts", "data", "DQR held reply drafts", "infra:dqr_chatbind_script",
-                       kind="pending drafts", status="configured")
-            graph.edge("holds_draft:dqr", bound_node, "data:dqr-held-drafts", "holds_draft",
-                       "infra:dqr_chatbind_script", "routing", "external text becomes a held reply draft",
-                       "External message is drafted and held; no client reply is sent", source_path=bind_script_path)
-            graph.edge("approves_draft:dqr", "chat:dqr-approval", "data:dqr-held-drafts", "approves_draft",
-                       "infra:dqr_chatbind_script", "routing", "exact operator draft command",
-                       "Only the configured private operator chat can approve a matching held draft", source_path=bind_script_path)
-            graph.edge("releases_reply:dqr", "data:dqr-held-drafts", bound_node, "releases_reply",
-                       "infra:dqr_chatbind_script", "routing", "approved draft reply text",
-                       "Approval can release the matching draft after target revalidation; delivery unobserved",
-                       source_path=bind_script_path)
+        owner = card.get("owner") if card_ok else None
+        if (isinstance(label, str) and re.match(r"^DQR\s*[—-]\s*Zayed\s*\+\s*Imam El\b", label)
+                and isinstance(owner, str) and re.fullmatch(
+                    r"dailyquranreading\.com\s+[—-]\s+Imam El engagement", owner)):
+            fact("requester", "Imam El named as client contact; handle-to-person mapping unverified",
+                 "declared", "identity:DQR#owner+chatbind#label")
+        if script_ok:
+            route = next(e for e in graph.data["edges"] if e.get("type") == "chat_routes_to"
+                         and e.get("from") == bound_node and e.get("to") == "session:DQR")
+            route["layer"] = "routing"
+            route["payload"] = "operator instructions; external text held outside DQR"
+            route["display"] = "Operator text targets DQR; external text is drafted and held by chatbind"
 
-    media_script = read_text(media_path, 128_000) if media_path else None
+    media_bind_declared = bool(bound and bound.get("media") is True)
+    if media_card_declared or media_bind_declared:
+        details = []
+        if media_card_declared:
+            details.append("DQR card lists an image tool.")
+        if media_bind_declared:
+            details.append("DQR chat configuration enables media handling.")
+        graph.unknown("out_of_scope_coupling", "infra:dqr_scope",
+                      " ".join(details) + " Image handling is omitted from this focused change-request graph; execution is unobserved.")
+
     push_script = read_text(push_path, 128_000) if push_path else None
-    media_script_ok = bool(media_script and all(marker in media_script for marker in
-                           ('push=1', 'if [[ "$push" == "1" ]]', '"$PUSH"',
-                            '"$EXIFTOOL" -all=', '"$EXIFTOOL" -gps:all',
-                            'DEST_REL="public/images"')))
-    media_ref = re.search(r'^DQR_MEDIA\s*=\s*"([^"\n]+)"', bind_script, re.M) if bind_script else None
-    media_link_ok = bool(script_ok and media_bound and media_path and media_ref
-                         and os.path.isabs(media_ref.group(1))
-                         and os.path.realpath(media_ref.group(1)) == os.path.realpath(media_path))
-    graph.source("infra:dqr_media", bool(media_script_ok and media_link_ok), media_path,
-                 "DQR media handler is unavailable or does not match the chat configuration.")
 
     repo_ok = bool(repo and repo.is_dir() and (repo / ".git").exists())
     git_cli = env.get("FLEETDECK_FLEET_DQR_GIT_CLI") or shutil.which("git")
@@ -828,36 +810,24 @@ def _dqr_scope(graph: Graph, env: dict[str, str], runner) -> None:
                            "Wrapper validates local identity and remote before pushing; push unobserved",
                            source_path=push_path)
 
-    if media_script_ok and media_link_ok and "tool:dqr-media" in graph.nodes:
-        graph.edge("stages_media:dqr", bound_node, "tool:dqr-media", "stages_media",
-                   "infra:dqr_media", "routing", "incoming image attachment",
-                   "Configured chat media handler passes images to the sanitizer", source_path=bind_script_path)
-        media_repo = _dqr_assignment(media_script, "REPO")
-        media_push = _dqr_assignment(media_script, "PUSH")
-        media_repo_ok = bool("workspace:dqr-repo" in graph.nodes and media_repo and repo
-                             and os.path.isabs(media_repo)
-                             and os.path.realpath(media_repo) == os.path.realpath(repo))
-        media_push_ok = bool("tool:dqr-push" in graph.nodes and push_path and media_push
-                             and os.path.isabs(media_push)
-                             and os.path.realpath(media_push) == os.path.realpath(push_path))
-        if media_repo_ok:
-            graph.edge("writes_asset:dqr", "tool:dqr-media", "workspace:dqr-repo", "writes_asset",
-                       "infra:dqr_media", "state", "sanitized image asset",
-                       "Media script writes a stripped image under the repo; execution unobserved",
-                       source_path=media_path)
-        if media_push_ok:
-            graph.edge("invokes_tool:dqr", "tool:dqr-media", "tool:dqr-push", "invokes_tool",
-                       "infra:dqr_media", "deployment", "commit and push request",
-                       "Media script calls the push wrapper by default after sanitization",
-                       source_path=media_path)
-        if media_repo_ok and media_push_ok and "pushes_to:dqr" in graph.edges:
-            fact("media_publication", "Incoming images are sanitized then auto-pushed by default",
-                 "declared", "imsg-chatbind+dqr-media")
-            approval = card.get("approval") if card_ok else None
-            if isinstance(approval, list) and any("publishing to the live site" in x.lower()
-                                                  for x in approval if isinstance(x, str)):
-                fact("publish_approval", "Mismatch: card asks for live-site approval; media script auto-pushes",
-                     "mismatch", "identity:DQR#approval+dqr-media")
+    package = read_json(repo / "package.json", 128_000) if repo else None
+    dependencies = {}
+    if isinstance(package, dict):
+        for bucket in ("dependencies", "devDependencies"):
+            entries = package.get(bucket)
+            if isinstance(entries, dict):
+                dependencies.update(entries)
+    major_versions = {"next": "16", "react": "19", "typescript": "5",
+                      "tailwindcss": "4", "@supabase/supabase-js": "2"}
+    stack_ok = bool(repo_ok and all(isinstance(dependencies.get(name), str)
+                                    and re.fullmatch(r"[~^]?" + major + r"(?:\.[0-9]+){0,2}",
+                                                     dependencies[name])
+                                    for name, major in major_versions.items()))
+    graph.source("infra:dqr_stack", stack_ok, repo / "package.json" if repo else None,
+                 "DQR package dependencies unavailable or different; framework stack is unknown.")
+    if stack_ok and card_repo_ok:
+        fact("stack", "Next.js 16 · React 19 · TypeScript 5 · Tailwind 4 · Supabase SDK 2 (declared)",
+             "declared", "package.json#dependencies")
 
     std = session.get("standard") if isinstance(session.get("standard"), dict) else {}
     roots = session.get("root_evidence") if isinstance(session.get("root_evidence"), dict) else {}

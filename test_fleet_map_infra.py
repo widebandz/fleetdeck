@@ -128,15 +128,23 @@ class InfrastructureTests(unittest.TestCase):
                              "type": "chat_routes_to", "evidence": "declared", "source": "chatbind",
                              "display": "Bound chat ownership", "freshness": {"as_of": TIME,
                                                                           "status": "configured-only"}})
+        raw["edges"].append({"id": "uses_tool:dqr-media", "from": "session:DQR", "to": "tool:dqr-media",
+                             "type": "uses_tool", "evidence": "declared", "source": "identity:DQR#tools",
+                             "display": "Listed tool", "freshness": {"as_of": TIME,
+                                                                 "status": "configured-only"}})
         repo = self.base / "dailyquranreading"
-        (repo / ".git").mkdir(parents=True)
-        (repo / ".vercel").mkdir()
+        (repo / ".git").mkdir(parents=True, exist_ok=True)
+        (repo / ".vercel").mkdir(exist_ok=True)
         (repo / ".vercel/project.json").write_text(json.dumps({"projectName": "dailyquranreading",
                                                                 "orgId": "test-org", "projectId": "test-project"}))
+        (repo / "package.json").write_text(json.dumps({"dependencies": {
+            "next": "16.1.6", "react": "19.2.3", "@supabase/supabase-js": "^2.95.3"},
+            "devDependencies": {"typescript": "^5", "tailwindcss": "^4"}}))
         card = self.memory / "DQR.md"
         card.write_text(f"---\nsession: DQR\nrole: assigned\nroot: {repo}\n"
                         "owner: dailyquranreading.com — Imam El engagement\n"
                         "chat_binding: imsg:chat-19\n"
+                        "tools: dqr-push, dqr-media, dqr-bind, dqr-keeper\n"
                         "approval:\n  - publishing to the live site\n---\n"
                         "## Responsibilities\n\n- Hold replies to chat 19 for approval.\n"
                         "- Sanitize site images.\n- Keep the inbox healthy.\n")
@@ -154,13 +162,9 @@ class InfrastructureTests(unittest.TestCase):
         push = self.base / "dqr-push"
         chat_script = self.base / "imsg-chatbind-dqr"
         chat_script.write_text(f'DQR_MEDIA  = "{media}"\n'
-                               'def private_draft_hold(): pass\ndef hold_draft(): pass\n'
-                               'def handle_approval(): pass\ndef validate_bound_target(): pass\n'
-                               'stage_images(incoming\nsend_to_bound_chat\n'
-                               'if is_operator(sender) and chat_id == OPERATOR_CHAT_ID:\n'
-                               'pend.get("approval_chat_id") == chat_id\n'
-                               'live.get("guid") != b.get("guid")\n'
-                               'expected and actual != expected\n'
+                               'def handle_record(): pass\nif is_operator(sender):\n'
+                               'deliver_to_session(b.get("session", "main"), text, chat_id, sender=sender)\n'
+                               'hold_draft(b, sender, text, draft)\n'
                                'vck_0123456789abcdefghijklmnop\n')
         media.write_text(f'REPO="{repo}"\nPUSH={push}\nDEST_REL="public/images"\n'
                          'push=1\nif [[ "$push" == "1" ]]; then\n  "$PUSH"\nfi\n'
@@ -189,54 +193,67 @@ class InfrastructureTests(unittest.TestCase):
             return self.runner(argv, **kwargs)
         return raw, env, runner, card, bind, media, push
 
-    def test_dqr_scope_projects_separate_approval_and_media_pipelines_without_private_ids(self):
+    def test_dqr_focus_projects_requester_chat_id_and_own_stack_without_media(self):
         raw, env, runner, *_ = self._dqr_fixture()
         clean = R.validate_snapshot(I.enrich(raw, env, runner))
         dqr = next(n for n in clean["nodes"] if n["id"] == "session:DQR")
         facts = {item["key"]: item for item in dqr["scope"]["facts"]}
-        self.assertEqual(set(facts), {"engagement_owner", "operator", "git_identity", "repository",
-                                      "chat_binding", "participants", "reply_approval",
-                                      "media_publication", "publish_approval", "runtime_scope", "deployment"})
-        self.assertEqual(facts["publish_approval"]["evidence"], "mismatch")
-        self.assertIn("auto-pushes", facts["publish_approval"]["value"])
-        self.assertEqual(dqr["responsibilities"]["source"], "infra:dqr_identity")
-        self.assertIn("bound chat", dqr["responsibilities"]["items"][0])
+        self.assertEqual(set(facts), {"requester", "operator", "chat_binding", "git_identity",
+                                      "repository", "stack", "runtime_scope", "deployment"})
+        self.assertIn("handle-to-person mapping unverified", facts["requester"]["value"])
+        self.assertIn("Supabase SDK 2 (declared)", facts["stack"]["value"])
+        self.assertNotIn("responsibilities", dqr)
+        chat = next(n for n in clean["nodes"] if n["id"] == "chat:bound-DQR")
+        self.assertEqual(chat["local_chat_id"], 19)
         edges = {e["type"]: e for e in clean["edges"]}
-        self.assertTrue({"holds_draft", "approves_draft", "releases_reply", "stages_media",
-                         "writes_asset", "invokes_tool", "pushes_to", "triggers_deploy"} <= set(edges))
-        self.assertEqual(edges["approves_draft"]["from"], "chat:dqr-approval")
-        self.assertEqual(edges["stages_media"]["to"], "tool:dqr-media")
+        self.assertTrue({"chat_routes_to", "uses_workspace", "pushes_to", "triggers_deploy"} <= set(edges))
+        self.assertFalse({"holds_draft", "approves_draft", "releases_reply", "stages_media",
+                          "writes_asset", "invokes_tool"} & set(edges))
+        self.assertFalse(any(e["from"] == "session:DQR" and e["to"] == "tool:dqr-media"
+                             for e in clean["edges"]))
+        self.assertFalse(any(n["id"] in {"tool:dqr-media", "chat:dqr-approval", "data:dqr-held-drafts"}
+                             for n in clean["nodes"]))
+        dqr_route = next(e for e in clean["edges"] if e["id"] == "chat_routes_to:dqr")
+        self.assertIn("operator instructions", dqr_route["payload"])
+        self.assertIn("external text held", dqr_route["payload"])
         self.assertEqual(edges["triggers_deploy"]["evidence"], "declared")
         self.assertIn("not observed", edges["triggers_deploy"]["display"])
+        self.assertTrue(any(x["kind"] == "out_of_scope_coupling" for x in clean["unknowns"]))
         serialized = json.dumps(clean)
         for private in ("chat-19", "fake-guid-private", "+15555550101", "+15555550102",
                         "+15555550103", "vck_0123456789abcdefghijklmnop", str(self.base)):
             self.assertNotIn(private, serialized)
 
-    def test_dqr_mismatches_omit_unsupported_pipes(self):
+    def test_dqr_mismatches_omit_chat_id_and_requester(self):
         raw, env, runner, card, bind, media, push = self._dqr_fixture()
         duplicate = json.loads(bind.read_text())
         duplicate["bound"].append({"session": "other", "chat_id": 19})
         bind.write_text(json.dumps(duplicate))
         clean = R.validate_snapshot(I.enrich(raw, env, runner))
-        self.assertFalse({"holds_draft", "approves_draft", "releases_reply", "stages_media"}
-                         & {e["type"] for e in clean["edges"]})
+        self.assertNotIn("local_chat_id", next(n for n in clean["nodes"] if n["id"] == "chat:bound-DQR"))
+        for invalid in (-7, 0, 1_000_001):
+            changed = json.loads(bind.read_text())
+            changed["bound"][0]["chat_id"] = invalid
+            bind.write_text(json.dumps(changed))
+            card.write_text(card.read_text().replace("imsg:chat-19", f"imsg:chat-{invalid}"))
+            clean = R.validate_snapshot(I.enrich(raw, env, runner))
+            self.assertNotIn("local_chat_id", next(n for n in clean["nodes"] if n["id"] == "chat:bound-DQR"))
+            card.write_text(card.read_text().replace(f"imsg:chat-{invalid}", "imsg:chat-19"))
+            bind.write_text(json.dumps(duplicate))
         duplicate["bound"].pop()
         bind.write_text(json.dumps(duplicate))
         card.write_text(card.read_text().replace("imsg:chat-19", "imsg:chat-23"))
         clean = R.validate_snapshot(I.enrich(raw, env, runner))
-        self.assertFalse({"holds_draft", "approves_draft", "releases_reply", "stages_media"}
-                         & {e["type"] for e in clean["edges"]})
+        self.assertNotIn("local_chat_id", next(n for n in clean["nodes"] if n["id"] == "chat:bound-DQR"))
         self.assertNotIn("chat_binding", {f["key"] for f in next(n for n in clean["nodes"]
                                                    if n["id"] == "session:DQR")["scope"]["facts"]})
         card.write_text(card.read_text().replace("imsg:chat-23", "imsg:chat-19"))
-        media.unlink()
+        binding = json.loads(bind.read_text())
+        binding["bound"][0]["label"] = "DQR private chat"
+        bind.write_text(json.dumps(binding))
         clean = R.validate_snapshot(I.enrich(raw, env, runner))
-        self.assertFalse({"stages_media", "writes_asset", "invokes_tool"}
-                         & {e["type"] for e in clean["edges"]})
-        self.assertNotIn("publish_approval", {f["key"] for f in next(n for n in clean["nodes"]
-                                                      if n["id"] == "session:DQR")["scope"]["facts"]})
-        media.write_text('push=1\nif [[ "$push" == "1" ]]; then "$PUSH"; fi\nexiftool\nDEST_REL="public/images"\n')
+        self.assertNotIn("requester", {f["key"] for f in next(n for n in clean["nodes"]
+                                               if n["id"] == "session:DQR")["scope"]["facts"]})
         push.write_text(push.read_text().replace('WANT_NAME="haqzy"', 'WANT_NAME="other"'))
         clean = R.validate_snapshot(I.enrich(raw, env, runner))
         self.assertFalse({"pushes_to", "triggers_deploy"} & {e["type"] for e in clean["edges"]})
@@ -250,6 +267,63 @@ class InfrastructureTests(unittest.TestCase):
         self.assertNotIn("triggers_deploy", types)
         self.assertNotIn("deployment", {f["key"] for f in next(n for n in clean["nodes"]
                                                   if n["id"] == "session:DQR")["scope"]["facts"]})
+
+    def test_dqr_missing_sources_omit_unverified_facts(self):
+        raw, env, runner, card, bind, media, push = self._dqr_fixture()
+        card.unlink()
+        clean = R.validate_snapshot(I.enrich(raw, env, runner))
+        dqr = next(n for n in clean["nodes"] if n["id"] == "session:DQR")
+        keys = {f["key"] for f in dqr.get("scope", {}).get("facts", [])}
+        self.assertFalse({"requester", "chat_binding", "git_identity", "repository",
+                          "stack", "deployment"} & keys)
+        self.assertNotIn("local_chat_id", next(n for n in clean["nodes"] if n["id"] == "chat:bound-DQR"))
+        coupling = next(u for u in clean["unknowns"] if u["kind"] == "out_of_scope_coupling")
+        self.assertNotIn("card lists", coupling["detail"])
+
+        raw, env, runner, card, bind, media, push = self._dqr_fixture()
+        raw["edges"] = [e for e in raw["edges"] if e["type"] != "chat_routes_to" or e["to"] != "session:DQR"]
+        clean = R.validate_snapshot(I.enrich(raw, env, runner))
+        self.assertNotIn("local_chat_id", next(n for n in clean["nodes"] if n["id"] == "chat:bound-DQR"))
+
+        raw, env, runner, card, bind, media, push = self._dqr_fixture()
+        (Path(env["FLEETDECK_FLEET_DQR_REPO"]) / "package.json").unlink()
+        clean = R.validate_snapshot(I.enrich(raw, env, runner))
+        keys = {f["key"] for f in next(n for n in clean["nodes"]
+                                      if n["id"] == "session:DQR")["scope"]["facts"]}
+        self.assertNotIn("stack", keys)
+
+    def test_dqr_filter_preserves_other_sessions_media_edges(self):
+        raw, env, runner, *_ = self._dqr_fixture()
+        raw["nodes"].extend([
+            {"id": "session:other", "type": "session", "label": "Other", "parent_id": "host:sample",
+             "declared": True, "observed": True, "source_refs": ["tmux"], "observed_at": TIME},
+            {"id": "data:other-draft", "type": "data", "label": "Other draft", "parent_id": None,
+             "declared": True, "observed": None, "source_refs": ["other-source"], "observed_at": None},
+            {"id": "chat:dqr-approval", "type": "chat", "label": "Old approval chat", "parent_id": None,
+             "declared": True, "observed": None, "source_refs": ["infra:dqr_chatbind"], "observed_at": None},
+            {"id": "data:dqr-held-drafts", "type": "data", "label": "Old held drafts", "parent_id": None,
+             "declared": True, "observed": None, "source_refs": ["infra:dqr_chatbind_script"], "observed_at": None},
+        ])
+        raw["edges"].extend([
+            {"id": "holds_draft:dqr", "from": "chat:bound-DQR", "to": "data:dqr-held-drafts",
+             "type": "holds_draft", "evidence": "declared", "source": "infra:dqr_chatbind_script",
+             "layer": "routing", "payload": "draft", "display": "Old DQR draft",
+             "freshness": {"as_of": TIME, "status": "configured-only"}},
+            {"id": "stages_media:dqr", "from": "chat:bound-DQR", "to": "tool:dqr-media",
+             "type": "stages_media", "evidence": "declared", "source": "infra:dqr_media",
+             "layer": "routing", "payload": "image", "display": "Old DQR image",
+             "freshness": {"as_of": TIME, "status": "configured-only"}},
+        ])
+        raw["edges"].append({"id": "holds_draft:other", "from": "session:other", "to": "data:other-draft",
+                             "type": "holds_draft", "evidence": "declared", "source": "other-source",
+                             "layer": "routing", "payload": "other session text", "display": "Other session draft",
+                             "freshness": {"as_of": TIME, "status": "configured-only"}})
+        clean = R.validate_snapshot(I.enrich(raw, env, runner))
+        self.assertIn("holds_draft:other", {e["id"] for e in clean["edges"]})
+        self.assertFalse({"holds_draft:dqr", "stages_media:dqr"} & {e["id"] for e in clean["edges"]})
+        node_ids = {n["id"] for n in clean["nodes"]}
+        self.assertFalse({"chat:dqr-approval", "data:dqr-held-drafts", "tool:dqr-media"} & node_ids)
+        self.assertTrue(all(e["from"] in node_ids and e["to"] in node_ids for e in clean["edges"]))
 
     def test_evidenced_layers_and_privacy(self):
         clean = R.validate_snapshot(I.enrich(snapshot(), self.env, self.runner))

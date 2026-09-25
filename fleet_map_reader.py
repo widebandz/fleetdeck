@@ -33,27 +33,22 @@ REMOTE_TIMEOUT = 25.0
 MIN_INTERVAL = 3.0
 MAX_NODES = 2000
 MAX_EDGES = 4000
-DQR_SCOPE_KEYS = {"engagement_owner", "operator", "git_identity", "repository",
-                  "chat_binding", "participants", "reply_approval", "media_publication",
-                  "publish_approval", "runtime_scope", "deployment"}
+DQR_SCOPE_KEYS = {"requester", "operator", "chat_binding", "git_identity",
+                  "repository", "stack", "runtime_scope", "deployment"}
 DQR_SCOPE_VALUES = {
-    "engagement_owner": re.compile(r"dailyquranreading\.com\s+[—-]\s+[A-Za-z][A-Za-z .'-]{1,60} engagement"),
+    "requester": re.compile(r"Imam El named as client contact; handle-to-person mapping unverified"),
     "operator": re.compile(r"Zayed \(configured operator\)"),
     "git_identity": re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,39} \(repository Git user; credential not rechecked\)"),
     "repository": re.compile(r"GitHub haqzy/dailyquranreading · main"),
-    "chat_binding": re.compile(r"DQR group chat configured; exact ID hidden"),
-    "participants": re.compile(r"(?:[1-9]|1[0-2]) configured handles: (?:[0-9]|1[0-2]) operator aliases, (?:[0-9]|1[0-2]) other; handle-to-person mapping unverified"),
-    "reply_approval": re.compile(r"External replies held for an exact operator command in a separate private chat"),
-    "media_publication": re.compile(r"Incoming images are sanitized then auto-pushed by default"),
-    "publish_approval": re.compile(r"Mismatch: card asks for live-site approval; media script auto-pushes"),
+    "chat_binding": re.compile(r"DQR bound chat configured; local ID shown on channel"),
+    "stack": re.compile(r"Next.js 16 · React 19 · TypeScript 5 · Tailwind 4 · Supabase SDK 2 \(declared\)"),
     "runtime_scope": re.compile(r"(?:Observed pane outside card root; DQR absent from session standard|DQR absent from session standard; pane placement unknown or separate)"),
     "deployment": re.compile(r"Vercel project linked locally; production release unobserved"),
 }
-DQR_SCOPE_EVIDENCE = {"engagement_owner": "declared", "operator": "declared",
+DQR_SCOPE_EVIDENCE = {"requester": "declared", "operator": "declared",
                       "git_identity": "checked", "repository": "checked",
-                      "chat_binding": "declared", "participants": "checked",
-                      "reply_approval": "declared", "media_publication": "declared",
-                      "publish_approval": "mismatch", "runtime_scope": "checked",
+                      "chat_binding": "checked", "stack": "declared",
+                      "runtime_scope": "checked",
                       "deployment": "declared"}
 
 _PRIVATE_VALUE = re.compile(
@@ -165,6 +160,13 @@ def validate_snapshot(raw):
         for field in ("kind", "group", "reach", "transport", "status"):
             if field in item:
                 node[field] = _safe_text(item[field], limit=60)
+        if "local_chat_id" in item:
+            local_id = _small_int(item["local_chat_id"])
+            if (node_type != "chat" or node_id != "chat:bound-DQR" or local_id is None
+                    or not 0 < local_id <= 1_000_000
+                    or "chatbind" not in refs or "infra:dqr_chatbind" not in refs):
+                raise SnapshotError("invalid local chat ID")
+            node["local_chat_id"] = local_id
         if not node["label"]:
             raise SnapshotError("missing label")
         identity = _project_map(item.get("identity"),
@@ -219,8 +221,7 @@ def validate_snapshot(raw):
             if any(not entry for entry in entries):
                 raise SnapshotError("invalid responsibilities")
             duty_source = duties.get("source")
-            if duty_source not in ({"infra:trace_identity", "infra:dqr_identity"}
-                                    if node_id == "session:DQR" else {"infra:trace_identity"}) or duties.get("status") != "declared":
+            if duty_source != "infra:trace_identity" or duties.get("status") != "declared":
                 raise SnapshotError("invalid responsibilities source")
             as_of = _safe_text(duties.get("as_of"), limit=40)
             if not as_of:
@@ -291,8 +292,9 @@ def validate_snapshot(raw):
                              "work_lease", "uses", "reads", "declares_service", "runs_service",
                              "schedules_job", "launches", "has_instruction_file", "writes_queue",
                              "consumes_queue", "sends_chat", "handles_bound_chat", "proxy_routes_to",
-                             "holds_draft", "approves_draft", "releases_reply", "stages_media",
-                             "writes_asset", "invokes_tool", "pushes_to", "triggers_deploy"}:
+                             "holds_draft", "approves_draft", "releases_reply",
+                             "stages_media", "writes_asset", "invokes_tool",
+                             "pushes_to", "triggers_deploy"}:
             raise SnapshotError("unknown edge type")
         freshness = _project_map(item.get("freshness"),
                                  text_keys=("as_of", "source_mtime", "status"))
@@ -312,8 +314,9 @@ def validate_snapshot(raw):
         infra_types = {"declares_service", "runs_service", "schedules_job", "launches",
                        "has_instruction_file", "writes_queue", "consumes_queue",
                        "sends_chat", "handles_bound_chat", "proxy_routes_to",
-                       "holds_draft", "approves_draft", "releases_reply", "stages_media",
-                       "writes_asset", "invokes_tool", "pushes_to", "triggers_deploy"}
+                       "holds_draft", "approves_draft", "releases_reply",
+                       "stages_media", "writes_asset", "invokes_tool",
+                       "pushes_to", "triggers_deploy"}
         if "layer" in item or edge_type in infra_types:
             layer = _safe_text(item.get("layer"), limit=30)
             if layer not in {"identity", "routing", "runtime", "capabilities", "instructions",
@@ -635,7 +638,7 @@ def _retain_unavailable_sources(current, previous, unavailable):
             if "registry" in unavailable and "registry" in old:
                 now["last_known_registry"] = copy.deepcopy(old["registry"])
                 now.setdefault("stale_fields", []).append("registry")
-            if ({"infra", "infra:trace_identity", "infra:dqr_identity"} & unavailable) and "responsibilities" in old:
+            if ({"infra", "infra:trace_identity"} & unavailable) and "responsibilities" in old:
                 now["last_known_responsibilities"] = copy.deepcopy(old["responsibilities"])
                 now.setdefault("stale_fields", []).append("responsibilities")
             if "sessions_conf" in unavailable and now["declared"] is None and old["declared"] is not None:

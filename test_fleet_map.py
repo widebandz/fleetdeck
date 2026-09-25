@@ -58,25 +58,29 @@ class ValidationTests(unittest.TestCase):
     def test_dqr_scope_is_bounded_and_rejects_private_facts(self):
         value = snapshot()
         dqr = node("session:DQR", "session", "DQR", "host:sample", refs=["tmux", "infra:dqr_identity"],
-                   responsibilities={"items": ["Hold bound chat replies."],
-                                     "source": "infra:dqr_identity", "as_of": TIME, "status": "declared"},
-                   scope={"facts": [{"key": "chat_binding", "value": "DQR group chat configured; exact ID hidden",
-                                      "evidence": "declared", "source": "chatbind+DQR-card", "as_of": TIME,
-                                      "private_note": "+15555550103"}]})
+                   scope={"facts": [{"key": "chat_binding",
+                                      "value": "DQR bound chat configured; local ID shown on channel",
+                                      "evidence": "checked", "source": "chatbind+DQR-card", "as_of": TIME,
+                                      "private_note": "+15555550103"},
+                                     {"key": "requester",
+                                      "value": "Imam El named as client contact; handle-to-person mapping unverified",
+                                      "evidence": "declared", "source": "identity:DQR#owner+chatbind#label",
+                                      "as_of": TIME}]})
         value["nodes"].append(dqr)
-        value["nodes"].append(node("chat:dqr-approval", "chat", "DQR private approval chat",
-                                   refs=["infra:dqr_chatbind"], observed=None))
-        value["edges"].append({"id": "approves_draft:dqr", "from": "chat:dqr-approval", "to": "session:DQR",
-                               "type": "approves_draft", "evidence": "declared", "source": "infra:dqr_chatbind",
-                               "layer": "routing", "payload": "exact operator draft command",
-                               "display": "Configured approval command; delivery unobserved",
+        value["nodes"].append(node("chat:bound-DQR", "chat", "Bound chat → DQR",
+                                   refs=["chatbind", "infra:dqr_chatbind"], observed=None,
+                                   local_chat_id=19))
+        value["edges"].append({"id": "chat_routes_to:dqr", "from": "chat:bound-DQR", "to": "session:DQR",
+                               "type": "chat_routes_to", "evidence": "declared", "source": "chatbind",
+                               "layer": "routing", "payload": "operator instructions; external text held outside DQR",
+                               "display": "Operator text targets DQR; external text is held",
                                "freshness": {"as_of": TIME, "status": "configured-only"}})
         clean = R.validate_snapshot(value)
         projected = next(n for n in clean["nodes"] if n["id"] == "session:DQR")
-        self.assertEqual(projected["responsibilities"]["source"], "infra:dqr_identity")
         self.assertEqual(projected["scope"]["facts"][0]["key"], "chat_binding")
+        self.assertEqual(clean["nodes"][-1]["local_chat_id"], 19)
         self.assertNotIn("private_note", json.dumps(clean))
-        self.assertEqual(clean["edges"][-1]["type"], "approves_draft")
+        self.assertEqual(clean["edges"][-1]["type"], "chat_routes_to")
         for private in ("chat 19", "imsg:chat-19", "+15555550103", "+1 (555) 555-0103",
                         "zayed@example.invalid", "vck_0123456789abcdefghijklmnop", "/tmp/private"):
             bad = copy.deepcopy(value)
@@ -90,6 +94,20 @@ class ValidationTests(unittest.TestCase):
                 R.validate_snapshot(bad)
         bad = copy.deepcopy(value)
         bad["nodes"][-2]["scope"]["facts"].append(copy.deepcopy(bad["nodes"][-2]["scope"]["facts"][0]))
+        with self.assertRaises(R.SnapshotError):
+            R.validate_snapshot(bad)
+        for invalid in (-1, 0, True, "19", 1_000_001):
+            bad = copy.deepcopy(value)
+            bad["nodes"][-1]["local_chat_id"] = invalid
+            with self.subTest(local_chat_id=invalid), self.assertRaises(R.SnapshotError):
+                R.validate_snapshot(bad)
+        bad = copy.deepcopy(value)
+        bad["nodes"][-1]["source_refs"] = ["chatbind"]
+        with self.assertRaises(R.SnapshotError):
+            R.validate_snapshot(bad)
+        bad = copy.deepcopy(value)
+        bad["nodes"][-1]["id"] = "chat:other"
+        bad["edges"][-1]["from"] = "chat:other"
         with self.assertRaises(R.SnapshotError):
             R.validate_snapshot(bad)
 
