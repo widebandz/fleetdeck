@@ -45,6 +45,13 @@ PREFIX="$(jget label_prefix com.example)"
 BRAND="$(jget brand fleetdeck)"
 PORTAL_PORT="$(jget ports.portal 8790)"
 CHAT_PORT="$(jget ports.chat 8783)"
+CUSTOMER_MODE="$("$PY" - "$ROOT" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import portal_server
+print("1" if portal_server.onboarding_config() else "0")
+EOF
+)"
 
 P_LABEL="$PREFIX.fleetdeck-portal"
 C_LABEL="$PREFIX.fleetdeck-chat"
@@ -106,6 +113,13 @@ serve_front() {
 case "${1:-status}" in
   start)
     which="${2:-all}"
+    if [ "$CUSTOMER_MODE" = 1 ]; then
+      [ "$which" = all ] && which=portal
+      if [ "$which" != portal ]; then
+        echo "fleetdeck: customer mode starts only the read-only portal" >&2
+        exit 1
+      fi
+    fi
     [ "$which" = all ] || [ "$which" = portal ] && { boot "$P_LABEL"; serve_front; }
     [ "$which" = all ] || [ "$which" = chat ]   && boot "$C_LABEL"
     [ "$which" = all ] || [ "$which" = skin ]   && boot "$S_LABEL"
@@ -122,7 +136,7 @@ case "${1:-status}" in
   restart) exec "$0" start "${2:-all}" ;;
   url)
     echo "portal  $(purl)"
-    echo "chat    $(curl_)"
+    [ "$CUSTOMER_MODE" = 1 ] || echo "chat    $(curl_)"
     ;;
   log)
     tail -n "${2:-60}" "$LOG_DIR/fleetdeck-portal.log" "$LOG_DIR/fleetdeck-chat.log" \
@@ -140,7 +154,9 @@ case "${1:-status}" in
     [ "$BRAND" = "fleetdeck" ] && banner="fleetdeck $v" || banner="$BRAND · fleetdeck $v"
     echo "▩ $banner  —  $ROOT"
     echo
-    for pair in "portal:$P_LABEL:$PORTAL_PORT" "chat:$C_LABEL:$CHAT_PORT"; do
+    surfaces=("portal:$P_LABEL:$PORTAL_PORT")
+    [ "$CUSTOMER_MODE" = 1 ] || surfaces+=("chat:$C_LABEL:$CHAT_PORT")
+    for pair in "${surfaces[@]}"; do
       IFS=: read -r n l p <<<"$pair"
       pid="$(pid_of "$l")"
       if [ -n "$pid" ] && [ "$pid" != "-" ]; then st="up   pid $pid"
@@ -151,12 +167,14 @@ case "${1:-status}" in
     done
     echo
     echo "  portal  $(purl)"
-    echo "  chat    $(curl_)"
+    [ "$CUSTOMER_MODE" = 1 ] || echo "  chat    $(curl_)"
     [ "${1:-}" = doctor ] || exit 0
 
     echo
     echo "── dependencies ──"
-    for b in tmux ttyd python3; do
+    dependencies=(tmux python3)
+    [ "$CUSTOMER_MODE" = 1 ] || dependencies+=(ttyd)
+    for b in "${dependencies[@]}"; do
       w="$(command -v "$b" 2>/dev/null)"
       echo "  $([ -n "$w" ] && echo "✓" || echo "✗") $b	${w:-MISSING}"
     done
@@ -166,7 +184,9 @@ case "${1:-status}" in
     "$TSBIN" serve status 2>/dev/null | sed 's/^/  /' || echo "  (unavailable)"
     echo
     echo "── drift ──"
-    for l in "$P_LABEL" "$C_LABEL"; do
+    labels=("$P_LABEL")
+    [ "$CUSTOMER_MODE" = 1 ] || labels+=("$C_LABEL")
+    for l in "${labels[@]}"; do
       src="$ROOT/launchagents/$(echo "$l" | sed "s/^$PREFIX\.//").plist"
       dst="$HOME/Library/LaunchAgents/$l.plist"
       [ -f "$dst" ] || { echo "  ! $l.plist NOT INSTALLED"; continue; }
@@ -189,6 +209,16 @@ case "${1:-status}" in
     fi
     echo
     echo "── agents seen by the portal ──"
+    if [ "$CUSTOMER_MODE" = 1 ]; then
+      curl -s --max-time 5 "http://127.0.0.1:$PORTAL_PORT/api/watch" 2>/dev/null | "$PY" -c '
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception:
+    print("  (portal not answering)")
+    raise SystemExit
+print("  head session: " + ("running, read only" if d.get("running") else "not running"))'
+      exit 0
+    fi
     # Python source is single-quoted for the shell, so it must contain NO
     # single quotes and no backslash-escaped doubles — hence the plain string
     # concatenation below rather than f-strings with quoted keys.

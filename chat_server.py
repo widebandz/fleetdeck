@@ -52,7 +52,7 @@ which took this project's launchd jobs down once already.
 
   PORT=8783 BIND=tailscale TTYD_PORT=8784   # env-configured; see the CLI
 """
-import os, re, io, json, time, base64, socket, colorsys, hashlib, signal
+import os, re, io, json, time, base64, socket, colorsys, hashlib, signal, stat
 import shutil
 import threading, subprocess, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
@@ -73,6 +73,32 @@ def _conf():
 CONF      = _conf()
 _ports    = CONF.get("ports") or {}
 _chat     = CONF.get("chat") or {}
+
+
+def customer_mode():
+    """A customer phone uses the portal's capture-only /watch surface."""
+    if "onboarding" in CONF:
+        data = CONF["onboarding"]
+    else:
+        path = os.path.expanduser(os.environ.get(
+            "FLEETDECK_SETUP_STATE_PATH", "~/.wideband/setup/state.json"))
+        try:
+            fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            try:
+                info = os.fstat(fd)
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                        or info.st_mode & 0o077 or info.st_size > 64 * 1024):
+                    return False
+                with os.fdopen(fd, "r", encoding="utf-8") as fh:
+                    fd = -1
+                    raw = json.load(fh)
+            finally:
+                if fd >= 0:
+                    os.close(fd)
+            data = raw.get("metadata") if isinstance(raw, dict) else None
+        except (OSError, ValueError, UnicodeError):
+            return False
+    return isinstance(data, dict) and bool(data.get("os_name") and data.get("agent_name"))
 
 
 def _bin(name, *fallbacks):
@@ -1121,6 +1147,9 @@ def resolve_bind(spec):
 
 
 if __name__ == "__main__":
+    if customer_mode():
+        print("refusing writable chat in customer mode; use portal /watch", flush=True)
+        raise SystemExit(78)
     # With the password gone the BIND is the whole boundary, so check it before
     # serving writable shells rather than checking for a credential. resolve_bind
     # returns the tailnet IP or degrades to loopback; a LAN address or 0.0.0.0

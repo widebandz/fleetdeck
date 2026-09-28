@@ -52,14 +52,6 @@ case "$HERE" in
     exit 1 ;;
 esac
 
-miss=0
-for b in tmux ttyd; do
-  command -v "$b" >/dev/null 2>&1 || { echo "  ✗ missing: $b   (brew install $b)"; miss=1; }
-done
-[ -x "/Applications/Tailscale.app/Contents/MacOS/Tailscale" ] \
-  || echo "  ~ Tailscale.app not found — the portal will stay loopback-only until it is installed"
-[ "$miss" = 0 ] || { echo; echo "install the missing tools, then re-run."; exit 1; }
-
 # config.json and services.json are operator data and deliberately untracked —
 # see .gitignore. Seed them from the shipped templates on a fresh clone, and
 # never touch them again: re-running install.sh must not overwrite a board the
@@ -70,6 +62,54 @@ for f in config services; do
   fi
 done
 [ -f "$HERE/config.json" ] || { echo "  ✗ no config.json and no template to seed it"; exit 1; }
+
+# The installer-backed phone has a capture-only terminal built into the portal.
+# Do not install a second, writable chat/ttyd surface alongside it. Existing
+# operator installs without onboarding data keep their historical behavior.
+CUSTOMER_MODE="$("$PY" - "$HERE/config.json" <<'EOF'
+import json,os,stat,sys
+cfg=json.load(open(sys.argv[1]))
+if "onboarding" in cfg:
+    d=cfg["onboarding"]
+else:
+    d={}
+    path=os.path.expanduser(os.environ.get(
+        "FLEETDECK_SETUP_STATE_PATH", "~/.wideband/setup/state.json"))
+    try:
+        fd=os.open(path,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0))
+        with os.fdopen(fd) as fh:
+            st=os.fstat(fh.fileno())
+            if (stat.S_ISREG(st.st_mode) and st.st_uid==os.getuid()
+                    and not st.st_mode&0o077 and st.st_size<=64*1024):
+                raw=json.load(fh)
+                d=raw.get("metadata",{}) if isinstance(raw,dict) else {}
+    except (OSError,ValueError):
+        pass
+print("1" if isinstance(d,dict) and d.get("os_name") and d.get("agent_name") else "0")
+EOF
+)"
+if [ "$CUSTOMER_MODE" = 1 ]; then
+  if [ ${#WANT[@]} -eq 0 ]; then
+    WANT=(portal)
+  else
+    for w in "${WANT[@]}"; do
+      if [ "$w" != portal ]; then
+        echo "  ✗ customer mode installs portal only; $w is not a read-only surface"
+        exit 1
+      fi
+    done
+  fi
+fi
+
+miss=0
+tools=(tmux)
+[ "$CUSTOMER_MODE" = 1 ] || tools+=(ttyd)
+for b in "${tools[@]}"; do
+  command -v "$b" >/dev/null 2>&1 || { echo "  ✗ missing: $b   (brew install $b)"; miss=1; }
+done
+[ -x "/Applications/Tailscale.app/Contents/MacOS/Tailscale" ] \
+  || echo "  ~ Tailscale.app not found — the portal will stay loopback-only until it is installed"
+[ "$miss" = 0 ] || { echo; echo "install the missing tools, then re-run."; exit 1; }
 
 read -r PREFIX PORTAL_PORT CHAT_PORT TTYD_PORT ADOPT_PORT <<<"$("$PY" - "$HERE/config.json" <<'EOF'
 import json,sys
@@ -131,6 +171,31 @@ fi
 
 echo
 echo "loading agents…"
+if [ "$CUSTOMER_MODE" = 1 ]; then
+  # A machine converted from operator mode may already have a writable chat
+  # job loaded. Boot it out before the customer portal becomes available.
+  for base in fleetdeck-chat fleetdeck-adopt fleetdeck-skin; do
+    l="$PREFIX.$base"
+    if launchctl print "gui/$UID_N/$l" >/dev/null 2>&1; then
+      launchctl bootout "gui/$UID_N/$l" 2>/dev/null
+      for _ in $(seq 20); do
+        launchctl print "gui/$UID_N/$l" >/dev/null 2>&1 || break
+        sleep 0.3
+      done
+      if launchctl print "gui/$UID_N/$l" >/dev/null 2>&1; then
+        echo "  ✗ $l is still loaded; refusing customer portal install"
+        exit 1
+      fi
+      echo "  - $l (customer mode)"
+    fi
+    # launchd reloads *.plist at the next login. Keep a reversible copy, but
+    # remove the active suffix so a reboot cannot restore writable services.
+    if [ -f "$LA/$l.plist" ]; then
+      mv "$LA/$l.plist" "$LA/$l.plist.customer-disabled"
+      echo "  - $l.plist (disabled for customer mode)"
+    fi
+  done
+fi
 for t in "$HERE"/launchagents/*.plist.tmpl; do
   base="$(basename "$t" .plist.tmpl)"
   wanted "$base" || continue

@@ -56,12 +56,21 @@ import json
 import os
 import plistlib
 import re
+import fcntl
+import base64
+import binascii
+import hmac
+import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+import uuid
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
+from urllib.parse import urlsplit
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -106,6 +115,110 @@ def load_config():
 
 
 CONF = load_config()
+SETUP_STATE_PATH = os.path.expanduser(os.environ.get(
+    "FLEETDECK_SETUP_STATE_PATH", "~/.wideband/setup/state.json"))
+FIRST_GOAL_STATUS_PATH = os.path.expanduser(os.environ.get(
+    "FLEETDECK_FIRST_GOAL_STATUS_PATH", "~/.wideband/first-goal/status.json"))
+
+
+def _private_json(path):
+    """Read a bounded regular JSON file owned by this user with mode 0600."""
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            info = os.fstat(fd)
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_mode & 0o077 or info.st_size > 64 * 1024):
+                return None
+            raw = os.read(fd, 64 * 1024 + 1)
+            if len(raw) > 64 * 1024:
+                return None
+            data = json.loads(raw)
+        finally:
+            os.close(fd)
+    except (OSError, ValueError, UnicodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def setup_onboarding_state():
+    """Read only display choices from the private setup state."""
+    raw = _private_json(SETUP_STATE_PATH)
+    if not raw:
+        return None
+    data = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else raw
+    return {key: data.get(key) for key in (
+        "os_name", "agent_name", "first_goal", "first_project_url",
+        "head_session")}
+
+
+def _phone_url(url):
+    """Only an HTTPS URL can leave the Mac for the installed phone app."""
+    if not isinstance(url, str) or any(ord(c) < 32 for c in url):
+        return ""
+    try:
+        parsed = urlsplit(url)
+        if (parsed.scheme == "https" and parsed.netloc
+                and not parsed.username and not parsed.password):
+            return url
+    except ValueError:
+        pass
+    return ""
+
+
+def first_goal_status(info):
+    """Project links come only from a private status file or live service scan."""
+    data = _private_json(FIRST_GOAL_STATUS_PATH) or {}
+    if (data.get("goal") != info["first_goal"]
+            or data.get("os_name") != info["os_name"]
+            or data.get("agent_name") != info["agent_name"]):
+        return {"status": "pending", "phone_url": "",
+                "local_only": False, "identity_match": False}
+    return {
+        "status": str(data.get("status") or "pending")[:32],
+        "phone_url": _phone_url(data.get("phone_url"))
+        if data.get("status") == "ready" else "",
+        "local_only": bool(data.get("local_url")),
+        "identity_match": True,
+    }
+
+
+def onboarding_config():
+    """The installer supplies display data; missing data keeps the operator UI."""
+    data = (CONF["onboarding"] if "onboarding" in CONF
+            else setup_onboarding_state())
+    if not isinstance(data, dict) or not data.get("os_name") or not data.get("agent_name"):
+        return None
+    goal = data.get("first_goal")
+    if goal not in ("research", "website", "proposal"):
+        goal = "research"
+    session = data.get("head_session") or "wb-head"
+    if not isinstance(session, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", session):
+        session = "wb-head"
+    url = data.get("first_project_url") or ""
+    url = _phone_url(url)
+    return {
+        "os_name": str(data["os_name"])[:64],
+        "agent_name": str(data["agent_name"])[:64],
+        "first_goal": goal,
+        "first_project_url": url,
+        "head_session": session,
+    }
+
+
+CONTROL_TOKEN = os.environ.get("FLEETDECK_CONTROL_TOKEN", "")
+
+
+def control_authorized(header):
+    """Basic auth is an explicit unlock for portal controls in customer mode."""
+    if len(CONTROL_TOKEN) < 16 or not header or not header.startswith("Basic "):
+        return False
+    try:
+        userpass = base64.b64decode(header[6:], validate=True).decode("utf-8")
+        _, password = userpass.split(":", 1)
+    except (ValueError, UnicodeError, binascii.Error):
+        return False
+    return hmac.compare_digest(password, CONTROL_TOKEN)
 
 
 def tailnet_name():
@@ -584,7 +697,7 @@ PAGE = """<!doctype html>
 <link rel="apple-touch-icon" href="icon-180.png">
 <title>__MACHINE__ // portal</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%2305070a'/><path d='M6 12h6l4 10 4-16 4 12h2' stroke='%234fe3c1' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
-<style>
+<style>__VT__
   :root{
     --bg:#05070a; --panel:#0a0e13; --line:#18222b;
     --ink:#8fa3b0; --bright:#d6e4ec; --dim:#4a5b68;
@@ -623,6 +736,52 @@ PAGE = """<!doctype html>
   @keyframes blink{50%{opacity:0}}
   .meta{color:var(--dim);margin-left:auto;font-size:11px;letter-spacing:.06em}
   .meta b{color:var(--on);font-weight:600}
+  /* The one labelled control in a header of icon buttons, and labelled on
+     purpose: the three beside it are modes of THIS board, where a glyph is
+     enough because there is nowhere else to end up. This one leaves for a
+     different service, and a 30px square would have to be learned before it
+     could be used. It sits before `.meta` — which holds the right edge with
+     `margin-left:auto` — so it reads immediately after the machine name
+     instead of being filed away with the window controls. */
+  #netmap{
+    flex:none;margin-left:6px;padding:5px 10px;
+    border:1px solid var(--line);border-radius:3px;
+    background:transparent;color:var(--ink);text-decoration:none;
+    font:inherit;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+    white-space:nowrap;display:inline-flex;align-items:center;gap:7px;
+    align-self:center;
+  }
+  #netmap:hover,#netmap:focus-visible{border-color:var(--on);color:var(--on);outline:0}
+  #netmap:active{background:rgba(79,227,193,.07)}
+  /* Same chip, no lamp. The lamp on its neighbour means "something is moving
+     at the other end of this link"; this one is a ledger, and a pulsing dot
+     beside a cash figure would read as an alert. */
+  #cashflow{
+    flex:none;margin-left:6px;padding:5px 10px;
+    border:1px solid var(--line);border-radius:3px;
+    background:transparent;color:var(--ink);text-decoration:none;
+    font:inherit;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+    white-space:nowrap;align-self:center;
+  }
+  #cashflow:hover,#cashflow:focus-visible{border-color:var(--on);color:var(--on);outline:0}
+  #cashflow:active{background:rgba(79,227,193,.07)}
+  /* Lit, slowly. The target is a live view and this is the header's only hint
+     that something there is moving; it breathes rather than blinks so it does
+     not compete with the caret two elements to its left. */
+  #netmap i{width:5px;height:5px;border-radius:50%;background:var(--on);
+    flex:none;animation:netpulse 2.6s ease-in-out infinite}
+  @keyframes netpulse{0%,100%{opacity:.35}50%{opacity:1}}
+  /* Narrow screens: the header already wraps, and the label is the first
+     thing worth keeping whole when it does. */
+  @media(max-width:560px){
+    #netmap{margin-left:0;order:9;width:100%;justify-content:center;
+      padding:8px 10px;margin-top:4px}
+    /* Side by side on the wrapped row rather than a third full-width bar —
+       "Cashflow" is one short word and does not need the whole width. */
+    #cashflow{order:10;flex:1;margin-left:0;text-align:center;
+      padding:8px 10px;margin-top:4px}
+    #netmap{flex:2}
+  }
   #fs{
     display:none;margin-left:10px;flex:none;
     width:30px;height:30px;padding:0;
@@ -792,6 +951,21 @@ PAGE = """<!doctype html>
 <header>
   <span class="brand" id="brand">__BRAND__</span>
   <span style="color:var(--dim)">// __MACHINE__</span><span class="cursor"></span>
+  <!-- New tab, deliberately. This is a live map you watch while doing
+       something else, and same-tab would throw away the board you were
+       reading it against — on the desk that is the whole cost of the trip.
+       It changes nothing on an installed Android app, where a cross-origin
+       target opens in a Custom Tab either way (see NETMAP_URL), so new tab is
+       strictly better in one place and neutral in the other.
+       `rel=noopener` because the target gets no business with this window. -->
+  <a id="netmap" href="__NETMAP__" target="_blank" rel="noopener"
+     title="Live Terminal Network — the live fleet map"><i></i>Live Terminal Network</a>
+  <!-- Same tab, unlike its neighbour, and the difference is not cosmetic:
+       this one is served from this origin, so it behaves like /notes — it
+       stays inside the installed app and Back returns. Opening an internal
+       surface in a new tab would leave a stack of Fleetdeck tabs behind. -->
+  <a id="cashflow" href="/cashflow"
+     title="Cashflow — the accountant's cash view">__CASHFLOW_LABEL__</a>
   <span class="meta"><b id="n">—</b> online<span id="clock"></span></span>
   <button id="fs" title="Fullscreen" aria-label="Toggle fullscreen">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -1340,6 +1514,146 @@ OPERATOR_PHONE = os.environ.get("WB_OPERATOR_PHONE", "+16465490064")
 # grant for — so going through it fails with "authorization denied (code: 23)".
 IMSG = "/opt/homebrew/bin/imsg"
 
+# Trace's outbox. READ-ONLY from this process, always. The launchd worker
+# com.wideband.trace-outbox is the only thing that puts a message on the wire;
+# the portal reports what it has ALREADY sent by reading the `sent` directory.
+# Nothing here may ever call send_text() — that is a second outbound iMessage
+# path and the whole boundary is that there is exactly one.
+TRACE_SESSION = os.environ.get("WB_TRACE_SESSION", "trace")
+
+# Grace — Trace's local model assistant. Same qwen the router already uses to
+# classify inbound messages; this gives that existing classifier a voice.
+#
+# `think` is False and that is load-bearing, not a preference: with thinking on,
+# this model spends the whole token budget reasoning and returns an EMPTY
+# content field. Measured 584ms with it off against 3.5s and no answer with it
+# on. If Grace ever goes silent, check this flag first.
+#
+# Grace has READ tools and exactly one escalation. She has no outbox, no imsg,
+# no way to message anyone. Trace remains the only thing that speaks outward,
+# so a prompt-injected pane or page can at worst make her say something odd.
+GRACE_MODEL = os.environ.get("WB_GRACE_MODEL", "qwen3.8:27b-mlx")
+OLLAMA_CHAT = os.environ.get("WB_OLLAMA_CHAT", "http://127.0.0.1:11434/api/chat")
+
+# DEPRECATED 2026-09-16. The operator reaches Trace by iMessage voice note now,
+# so the spoken half of /call-trace — the mic loop, Grace, and the hand-off she
+# performs — is off by default. The TEXT half of that page is untouched: it goes
+# through router().deliver(), which is the same iMessage pipeline, and is the
+# thing the retirement is in favour of rather than against.
+#
+# DEFAULT OFF, exactly like the cockpit's NEXT_PUBLIC_TRACE_CALL. An absent
+# variable means retired, so a fresh checkout does not quietly bring the mic
+# back. WB_GRACE=1 restores it for a session.
+#
+# Phase 2 deletes GRACE_SYSTEM, grace_chat, grace_json, grace_turn, /api/grace
+# and the hands-free client JS outright. The list is in the cockpit's
+# docs/DEPRECATION-call-trace-and-grace.md, which covers both repos.
+GRACE_ENABLED = os.environ.get("WB_GRACE") == "1"
+GRACE_SYSTEM = """You are Grace, the local assistant to Trace, on Zayed's Mac.
+You speak out loud, so: short sentences, no markdown, no lists, no headings.
+One or two sentences is normal. Be warm and direct.
+
+You can see his tmux fleet. You answer quickly yourself when you can.
+Trace is the senior agent: he runs in a tmux pane, owns the outbox, and is the
+only one who can text Zayed or change anything. When something needs real work,
+judgement, or action, hand it to Trace.
+
+Reply with ONLY a JSON object, no prose around it:
+  {"say": "<what you say out loud>", "action": null}
+  {"say": "<e.g. let me look>", "action": "read", "session": "<name>"}
+  {"say": "<e.g. asking trace now>", "action": "ask_trace", "text": "<the request, in full>"}
+
+Use "read" to look at a session's scrollback before answering about it.
+Use "ask_trace" for anything that changes something, needs his tools, or that
+you cannot answer from what you can see. Never claim you did something yourself
+that you handed to Trace."""
+
+
+def grace_chat(messages, predict=200):
+    """One turn against the local model. Returns text, or None."""
+    payload = json.dumps({
+        "model": GRACE_MODEL, "stream": False, "think": False,
+        "messages": messages,
+        "options": {"num_predict": predict, "temperature": 0.4},
+    }).encode()
+    req = urllib.request.Request(OLLAMA_CHAT, data=payload,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return (json.load(r).get("message", {}).get("content") or "").strip()
+    except Exception:
+        return None
+
+
+def grace_json(text):
+    """Pull the JSON object out of a model reply that may be wrapped in prose."""
+    if not text:
+        return None
+    i, j = text.find("{"), text.rfind("}")
+    if i < 0 or j <= i:
+        return None
+    try:
+        d = json.loads(text[i:j + 1])
+        return d if isinstance(d, dict) else None
+    except Exception:
+        return None
+
+
+def grace_turn(user_text, history):
+    """Grace answers, optionally reading a pane or escalating to Trace.
+
+    Bounded at ONE tool hop on purpose. This runs inside a spoken conversation,
+    so an open-ended agent loop would mean unbounded silence; if she cannot
+    settle it in one look, handing to Trace is the better answer anyway.
+    """
+    live = [f["name"] for f in fleet_state()]
+    convo = [{"role": "system",
+              "content": GRACE_SYSTEM + "\n\nLive sessions: " + ", ".join(live)}]
+    for h in history[-6:]:
+        role = "assistant" if h.get("role") == "grace" else "user"
+        convo.append({"role": role, "content": str(h.get("text", ""))[:500]})
+    convo.append({"role": "user", "content": user_text[:1200]})
+
+    d = grace_json(grace_chat(convo)) or {}
+    say = str(d.get("say") or "").strip()
+    action = d.get("action")
+
+    if action == "read":
+        target = str(d.get("session") or "").strip()
+        if target in live:
+            tail = pane_tail(target, 120)
+            convo.append({"role": "assistant", "content": json.dumps(d)})
+            convo.append({"role": "user",
+                          "content": f"Scrollback from {target}:\n{tail}\n\n"
+                                     "Now answer out loud in one or two sentences. "
+                                     'Reply as {"say": "...", "action": null}.'})
+            d2 = grace_json(grace_chat(convo)) or {}
+            say = str(d2.get("say") or say).strip()
+        else:
+            say = say or f"I don't see a session called {target}."
+        return {"say": say, "handed_off": False}
+
+    if action == "ask_trace":
+        ask = str(d.get("text") or user_text).strip()
+        out = dispatch(TRACE_SESSION, ask[:1500])
+        if out.get("ok"):
+            return {"say": say or "Asking Trace now.", "handed_off": True}
+        return {"say": "I couldn't reach Trace just then.", "handed_off": False}
+
+    return {"say": say or "I didn't catch that.", "handed_off": False}
+
+
+def pane_tail(name, lines=120):
+    """Read-only scrollback. Grace never types into a pane; dispatch() does."""
+    try:
+        p = subprocess.run(["tmux", "capture-pane", "-p", "-S", f"-{int(lines)}",
+                            "-t", name], capture_output=True, text=True, timeout=12)
+        return (p.stdout or "")[-6000:]
+    except Exception:
+        return ""
+TRACE_OUT = os.path.expanduser("~/trace/outbox")
+TRACE_SENT = os.path.join(TRACE_OUT, "sent")
+
 
 ROUTER_PATH = os.path.expanduser("~/bin/imsg-router")
 WHISPER_BIN = os.environ.get("WB_WHISPER", "/opt/homebrew/bin/whisper-cli")
@@ -1664,20 +1978,1397 @@ PHONE_APPS = ["chat", "messages", "cockpit", "graph", "terminal", "pm"]
 # finished recording, so there is nothing to hear until you stop speaking.
 # ?call=1 still works and is unchanged; it is one edit back if the account is
 # topped up and full duplex is wanted again.
-CALL_TARGET_ID = "cockpit"
-CALL_TARGET_PATH = "/admin/trace/local"
+# NOW SERVED HERE, at /call-trace on this port.
+#
+# The cockpit surface it used to point at was a different voice stack on a
+# different port whose liveness this server could not vouch for, and the label
+# still promised "full duplex" long after the target became push-to-talk. This
+# one has no such gap: it is the same process that renders the menu, so if the
+# menu loads, the call surface loads.
+#
+# More importantly it mirrors the iMessage pipeline exactly rather than being a
+# second way in. Text goes to router().deliver(), the same call chatbind makes
+# for a text message; voice goes through the same local whisper.cpp that
+# /api/listen already used. Replies are read back out of Trace's outbox, so the
+# outbound boundary is untouched.
+# CALL_TARGET_ID = "cockpit" lived here until 2026-09-16 and was read by
+# nothing. It was left over from when this key opened a page on the cockpit,
+# and it outlived that by long enough to convince a reader that /call-trace was
+# still served on :3939 rather than by this process. A dead constant that names
+# the wrong machine is worse than no constant.
+CALL_TARGET_PATH = "/call-trace"
+
+# NOW THE NATIVE MESSAGES APP, 2026-09-23.
+#
+# /call-trace is still served (below) and still works, but it was a second
+# inbox for a conversation that already had one. Trace is talked to over
+# iMessage \u2014 the daemon listens there, the replies land there, the history is
+# there \u2014 so a web chat on the phone screen meant reading half the thread in
+# one place and half in another, and answering in whichever one you happened to
+# have open. The operator's word for it was that it "doesn't do anything".
+#
+# `sms:` is the scheme rather than a link because the destination is not a page.
+# The handle is the address the Mac actually sends FROM \u2014 `last_addressed_handle`
+# on the thread with the operator is `studio@wideband.ai`, so this opens the
+# existing thread rather than starting a new one beside it. A phone number here
+# would look more natural and be wrong: the Mac has no number, it has an Apple
+# ID, and addressing the number would open the operator's thread with himself.
+#
+# No `&body=` prefill. This key is opened mid-conversation as often as at the
+# start of one, and a draft dropped into a live thread is something to delete
+# before you can type.
+TRACE_IMESSAGE_HANDLE = "studio@wideband.ai"
 
 
 def call_destination(by_id):
-    """(href, label, sub) for the CALL key."""
-    s = by_id.get(CALL_TARGET_ID)
-    if s and s.get("linkable") and s.get("url"):
-        base = s["url"]
-        registry_path = "/admin/console"
-        if base.endswith(registry_path):
-            base = base[: -len(registry_path)]
-        return base + CALL_TARGET_PATH, "Call Trace", "live \u00b7 full duplex"
-    return "/call", "Brief", "cockpit down \u00b7 local readout"
+    """(href, label, sub) for the CALL key.
+
+    Nothing to resolve and nothing to degrade to: the target is an app on the
+    device, not a service on this machine, so there is no up/down branch and no
+    promise here that this process could fail to keep.
+
+    The sub-label dropped "voice" on 2026-09-16 when the spoken half was
+    retired, and names Messages now that the key leaves the browser entirely.
+    This page promised full duplex against a push-to-talk target once already;
+    saying anything but where the tap actually lands would be that mistake
+    twice.
+    """
+    return ("sms:" + TRACE_IMESSAGE_HANDLE, "Message Trace",
+            "opens messages \u00b7 the real thread")
+
+
+# \u2500\u2500 the live terminal network \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+#
+# The fleet map, which is its own service and not one of the scanned ones \u2014
+# it is absent from services.json, so the registry cannot resolve it the way
+# every other link on these surfaces is resolved. Written out in full here,
+# once, rather than pasted into the two pages that link to it.
+#
+# NOT a mistake that the outside port and the inside port differ by two digits:
+# `tailscale serve` publishes :18970 and proxies it to 127.0.0.1:18790. Checked
+# against `tailscale serve status` on 2026-09-27 rather than assumed, because
+# 18970/18790 is exactly the pair a reader corrects by hand and breaks.
+#
+# This is a DIFFERENT ORIGIN from this server \u2014 a different port is a different
+# origin \u2014 which has one visible consequence worth stating where the constant
+# lives: on the installed Android app, following this link leaves the
+# standalone shell and lands in a Custom Tab with an address bar. That is the
+# same cause as the six service keys on the phone screen and is not fixable
+# from the link itself; it needs the target served under this origin.
+NETMAP_URL = "https://brainwave.tailacfa70.ts.net:18970/fleet-map"
+NETMAP_LABEL = "Live Terminal Network"
+
+
+# ── cashflow ──────────────────────────────────────────────────────────────────
+#
+# The accountant session's cash view, served from THIS origin rather than
+# through a tunnel.
+#
+# There was no tunnel to wire up — checked on 2026-09-27: no ssh port-forward
+# running, nothing in ~/.ssh/config, no listener, and `start-accountant.sh`
+# only launches codex in tmux. The page existed solely as a local file the
+# agent had opened with `open file:///…/cashflow.html`, which a browser will
+# not follow from an https page and which means nothing at all from a phone.
+#
+# Serving it here instead of behind a new port is the better end state anyway,
+# and for the reason the operator has already run into twice: a different port
+# is a different origin, so a tunnel would have dropped the installed Android
+# app into a Custom Tab with an address bar, exactly like the six service keys
+# and the fleet map. On this origin the cash view stays inside the app.
+#
+# Read from disk per request, never cached in this process: the accountant
+# rewrites this file as the numbers change, and a monitoring surface that
+# shows a copy taken at boot is worse than no surface. `_send` already sets
+# Cache-Control: no-store, so the browser will not hold one either.
+#
+# The path is a CONSTANT and takes nothing from the request. There is no
+# parameter here that could be pointed at another file.
+CASHFLOW_PATH = os.path.expanduser("~/finance-ops/cashflow.html")
+CASHFLOW_LABEL = "Cashflow"
+
+# Injected at serve time, not written into the file — the agent regenerates it
+# and anything edited in place would be gone by the next run. Needed because
+# the installed app has no address bar and therefore no visible way back, and
+# because this page is the accountant's artefact rather than one of ours: it
+# has no header of its own to add a link to.
+# A BAR AT THE TOP OF <body>, not a floating pill over it. The pill was the
+# first version and it sat on top of the page's own headline — this document is
+# somebody else's layout and there is no corner here that is reliably free.
+# Sticky rather than fixed so it occupies its own height and pushes the content
+# down instead of covering it, and still follows you down a long table.
+#
+# Deliberately in Fleetdeck's colours against what is a light-themed page: it
+# is not trying to look like part of the cash view, it is the frame around it,
+# and reading as a seam is the honest outcome.
+# Styled INLINE, every rule of it, and that is not laziness. This markup gets
+# injected into documents this server did not write — the accountant's page
+# today, whatever an agent generates next — where there is no stylesheet to add
+# to and no way to know what a class name would collide with. Inline styles are
+# the only ones that cannot be overridden by a host page's cascade.
+FLEET_BAR = """
+<div id="fd-back" style="position:sticky;top:0;z-index:2147483647;flex:none;
+ display:flex;align-items:center;justify-content:space-between;gap:12px;
+ padding:10px max(12px,env(safe-area-inset-left));
+ padding-top:max(10px,env(safe-area-inset-top));
+ background:#05070a;border-bottom:1px solid #1d5f52;
+ font:11px/1 ui-monospace,SF Mono,Menlo,monospace;letter-spacing:.14em;
+ text-transform:uppercase">
+ <a href="/phone" style="color:#4fe3c1;text-decoration:none">&lsaquo; Fleetdeck</a>
+ <span style="color:#2b3a45">__SUB__</span>
+</div>
+"""
+
+
+# ── transitions ───────────────────────────────────────────────────────────────
+#
+# Cross-document view transitions. Three declarations turn seven separate page
+# loads into something that moves like one app, and the reason it is safe is
+# that a browser without support ignores the at-rule entirely and navigates
+# exactly as it does today. There is no JavaScript path to go wrong, no
+# interception of clicks, no single-page rewrite, and nothing to unwind.
+#
+# `navigation: auto` has to be present on BOTH documents — the one being left
+# and the one being entered — or the browser does the ordinary hard swap. That
+# is why this is interpolated into every same-origin surface rather than only
+# the home screen.
+#
+# The numbers are the whole difference between polish and clunk. 120ms out and
+# 200ms in is under the threshold where a transition starts to feel like
+# waiting; the 6px rise is small enough to read as the screen settling rather
+# than as a slide. Anything longer and every tap has a toll booth on it.
+#
+# The rise cannot show a seam because every surface here is #05070a on #05070a.
+#
+# What is deliberately NOT here: named elements. Morphing the tapped key into
+# the next screen's header is the demo everyone builds, and it is also where
+# this gets fragile — one renamed class and the morph half-plays. A crossfade
+# has nothing to misalign.
+VIEW_TRANSITION_CSS = """
+ @view-transition{navigation:auto}
+ ::view-transition-old(root){animation:fd-out 120ms ease both}
+ ::view-transition-new(root){animation:fd-in 200ms cubic-bezier(.2,0,0,1) both}
+ @keyframes fd-out{to{opacity:0}}
+ @keyframes fd-in{from{opacity:0;transform:translateY(6px)}}
+ /* Both forms on purpose. Nesting @view-transition in a conditional group is
+    the correct way to say this and is not everywhere yet; killing the
+    animations says it again in a way that has been valid CSS for a decade. An
+    at-rule a browser does not understand is dropped, so the pair costs
+    nothing and cannot disagree. */
+ @media(prefers-reduced-motion:reduce){
+   @view-transition{navigation:none}
+   ::view-transition-old(root),::view-transition-new(root){animation:none}
+ }
+"""
+
+
+def fleet_bar(sub):
+    """The seam. One bar, one look, wherever a foreign surface is framed.
+
+    It exists because the installed app has no address bar and therefore no
+    browser-provided way back — the thing that makes these surfaces feel like
+    one app is also what strands you inside them.
+    """
+    return FLEET_BAR.replace("__SUB__", esc_html(sub))
+
+# Said plainly rather than as a 404, because the realistic cause is not "this
+# is broken" — it is that the accountant has not written the file yet, or has
+# moved it. Naming the path it looked for is the difference between a dead
+# button and a one-line fix.
+CASHFLOW_MISSING = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark"><title>cashflow // not written yet</title>
+<style>
+ html,body{margin:0;height:100%;background:#05070a;color:#8fa3b0;
+   font:14px/1.6 ui-monospace,"SF Mono",Menlo,monospace;
+   display:grid;place-items:center;padding:24px;text-align:center}
+ h1{font-size:13px;letter-spacing:.24em;text-transform:uppercase;color:#4fe3c1;
+   font-weight:400;margin:0 0 14px}
+ code{color:#d6e4ec;font-size:12px;word-break:break-all}
+ p{margin:0 0 10px;max-width:34em}
+ a{color:#4a5b68;text-decoration:none;font-size:12px;letter-spacing:.12em}
+</style></head><body><div>
+ <h1>Nothing to show yet</h1>
+ <p>The accountant session has not written its cash view.</p>
+ <p><code>__PATH__</code></p>
+ <p><a href="/phone">&lsaquo; back to Fleetdeck</a></p>
+</div></body></html>"""
+
+
+# \u2500\u2500 framed apps \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+#
+# Cashflow got to keep the installed app's fullscreen because it is a static
+# file this server can read and serve from its own origin. A live service on
+# another port cannot be handled that way: proxying it would mean rewriting
+# every absolute path it fetches, and these apps all fetch absolute paths.
+#
+# So the top-level document stays here and the service is framed inside it.
+# The browser never leaves this origin, so the PWA never breaks out into a
+# Custom Tab \u2014 while inside the frame the app talks to its own port exactly as
+# it always did, because a frame resolves its URLs against its own origin.
+# Nothing about the framed service changes; it does not know it is framed.
+#
+# Verified before building rather than assumed (2026-09-27): none of the six
+# phone targets send X-Frame-Options or CSP frame-ancestors, and :8782 loaded
+# in a cross-origin frame with its /api/chats returning 200 and no request
+# failures. The known risk is storage partitioning \u2014 a framed document gets its
+# own cookie and localStorage jar \u2014 which costs nothing here because these
+# services have no login, their gate being the tailnet itself.
+#
+# A CLOSED SET, keyed by registry id. The URL is resolved from the scan like
+# every other link on these surfaces; nothing in the request names a URL, so
+# this cannot be pointed at an arbitrary origin by editing the address.
+# Every key on the phone screen, so none of them breaks out of the installed
+# app. Keys are registry ids — `chat` is what the screen calls FLEET, `pm` is
+# what it calls BOARD.
+#
+# All six were loaded in a real cross-origin frame before being added here, and
+# the two that could have failed did not: `chat` frames its own ttyd terminals,
+# so it is a frame inside a frame with a websocket at the bottom, and
+# `terminal` is ttyd directly. Both connected (`wss://…:8783/t/ws`,
+# `wss://…:8781/ws`) and rendered live sessions. `graph` draws to a canvas and
+# `pm` is a plain page; neither had anything to lose.
+SHELLED_APPS = {
+    "chat": "Fleet", "messages": "Messages", "cockpit": "Cockpit",
+    "graph": "Graph", "terminal": "Terminal", "pm": "Board",
+}
+
+# Permissions a framed document does NOT inherit from its parent and has to be
+# granted by name. Deliberately per-app and as short as possible: `cockpit` is
+# where Trace listens, and it is the only surface here with any reason to reach
+# a microphone. Granting it to all six would cost nothing visible and would be
+# the kind of default nobody revisits.
+SHELL_ALLOW_DEFAULT = "clipboard-read; clipboard-write"
+SHELL_ALLOW = {"cockpit": "microphone; clipboard-read; clipboard-write"}
+
+# Framed surfaces with no registry entry to resolve, as (label, url).
+#
+# The fleet map is not in services.json, so the scan cannot find it and the
+# id→service lookup the six keys use does not apply. Kept in its own map rather
+# than faked into the registry: a fabricated service entry would appear as a
+# tile on the board, be scanned for liveness on a port the scanner does not
+# own, and lie about where it came from.
+#
+# The trade here is real and worth naming: there is no up/down branch for these,
+# because liveness comes from the scan and these are not scanned. A stopped
+# service behind one of these shows the browser's own error inside the frame.
+#
+# This one also needed the OTHER SERVICE to allow it. The map sent
+# `frame-ancestors 'none'`, which refuses every framer including itself; it now
+# names this origin. Without that edit in ~/srv/fleetdeck-authoring the frame
+# here loads an empty document and the browser cancels the request — which is
+# what it did when this was first attempted.
+SHELLED_STATIC = {"netmap": (NETMAP_LABEL, NETMAP_URL)}
+
+APP_SHELL_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark"><title>__LABEL__ // __MACHINE__</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="__LABEL__">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<style>__VT__
+ html,body{margin:0;height:100%;background:#05070a;overflow:hidden}
+ /* Column, not a scrolling document: the bar takes its own height and the
+    frame takes the rest exactly. Any page scroll here would be the shell
+    scrolling behind a frame that scrolls too \u2014 two scrollbars for one list. */
+ body{display:flex;flex-direction:column;height:100dvh}
+ iframe{flex:1 1 auto;width:100%;border:0;display:block;background:#05070a}
+</style></head><body>
+__BAR__
+<iframe src="__URL__" title="__LABEL__" allow="__ALLOW__"></iframe>
+</body></html>"""
+
+# Down is a state, not an error: the frame would otherwise show the browser's
+# own connection-failed page, which is the one screen guaranteed to look like
+# Fleetdeck is broken rather than the service being off.
+APP_SHELL_DOWN = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark"><title>__LABEL__ // not running</title>
+<style>
+ html,body{margin:0;height:100%;background:#05070a;color:#8fa3b0;
+   font:14px/1.6 ui-monospace,"SF Mono",Menlo,monospace;
+   display:grid;place-items:center;padding:24px;text-align:center}
+ h1{font-size:13px;letter-spacing:.24em;text-transform:uppercase;color:#4fe3c1;
+   font-weight:400;margin:0 0 14px}
+ p{margin:0 0 10px;max-width:32em}
+ a{color:#4a5b68;text-decoration:none;font-size:12px;letter-spacing:.12em}
+</style></head><body><div>
+ <h1>__LABEL__ is not running</h1>
+ <p>The service is registered but nothing is answering on this machine.</p>
+ <p><a href="/phone">&lsaquo; back to Fleetdeck</a></p>
+</div></body></html>"""
+
+
+# \u2500\u2500 notes \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+#
+# A capture surface for voice-note transcripts and half-formed ideas, which
+# until now landed in whatever app was open and were never seen again.
+#
+# The shape is the point. A generic list turns into a graveyard because every
+# row costs the same to add and nothing says what to DO with it. A note here is
+# four fields \u2014 what it is, what it actually means, the single next move, and a
+# status \u2014 so an idea is either executable or visibly not yet distilled. Status
+# is a closed set, not free text, because the value of a status is that it
+# sorts, and free text does not sort.
+#
+# ONE file, rewritten whole. This is a single-operator surface holding a few
+# hundred notes at the very most; a database would be more machinery than the
+# problem has. The write is tmp-then-rename so a crash mid-write leaves the
+# previous file intact rather than a truncated one \u2014 the failure that loses
+# everything rather than the last entry.
+# A test instance can set a private path before import. The default remains the
+# operator's existing store; tests must never point their write path there.
+NOTES_PATH = os.path.expanduser(
+    os.environ.get("FLEETDECK_NOTES_PATH", "~/.fleetdeck-notes.json"))
+
+# Ordered: this is also the display order and the cycle order of the chip.
+NOTE_STATUSES = ("inbox", "ready", "parked", "done")
+
+# Caps, applied server-side on every path in. They are generous enough that no
+# honest note hits them and small enough that the file cannot be grown without
+# bound by something automated \u2014 Trace writes here too, and an agent in a loop
+# is the realistic way this file gets ruined.
+NOTE_LIMITS = {"title": 140, "concept": 600, "next": 400, "original": 12000}
+NOTES_MAX = 500
+
+_notes_lock = threading.Lock()
+
+
+@contextmanager
+def _notes_guard():
+    """Serialize read-modify-write across threads and separate server processes."""
+    with _notes_lock:
+        lock_fd = os.open(NOTES_PATH + ".lock", os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            os.close(lock_fd)
+
+# A random suffix keeps ids unique across separate portal processes as well as
+# threads. The timestamp keeps a human-readable order in backups.
+
+
+# The first note is the operator's own, transcribed from a voice message on
+# 2026-09-25. It is seeded rather than typed so the surface is never empty on
+# first open \u2014 an empty list teaches nothing about what a good note looks like,
+# and this one is the worked example: one strong idea, distilled, with a move.
+SEED_NOTES = [{
+    "title": "Instant iMessage Agent Installer",
+    "original": (
+        "Reduce installation to the simplest path. A person has an Apple Account and a "
+        "computer; install a minimal Wideband layer with no optional features "
+        "so they can text one assigned head agent immediately. That agent then "
+        "guides them into optional outcomes, such as scaffolding a website and "
+        "dev server."),
+    "concept": (
+        "Apple Account plus computer leads to a minimal Wideband install, immediate "
+        "iMessage access, one head agent, then guided capability expansion."),
+    "next": (
+        "Map and prototype the shortest verified path from blank computer to "
+        "first successful text reply, separating mandatory setup from later "
+        "add-ons."),
+    "status": "inbox",
+    "source": "voice",
+}]
+
+
+def _notes_read():
+    """The list on disk, or the seed if there is nothing there yet.
+
+    Returns [] rather than raising on a corrupt file: this is read on the way
+    to rendering a page, and a parse error should cost the operator the notes,
+    not the whole front screen. The bad file is left alone to be looked at.
+    """
+    try:
+        with open(NOTES_PATH, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        items = data.get("notes") if isinstance(data, dict) else data
+        return items if isinstance(items, list) else []
+    except FileNotFoundError:
+        return None                      # distinct from empty \u2014 see notes_all()
+    except Exception as e:
+        sys.stderr.write("fleetdeck: notes unreadable (%s)\n" % e)
+        return []
+
+
+def _notes_write(items):
+    """Whole file, atomically. Caller holds _notes_lock."""
+    directory = os.path.dirname(NOTES_PATH) or "."
+    fd, tmp = tempfile.mkstemp(prefix=".fleetdeck-notes-", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"notes": items}, fh, indent=1, ensure_ascii=False)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, NOTES_PATH)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def notes_all():
+    """Every note, seeded on first use.
+
+    FileNotFoundError is the only condition that seeds. A file that exists and
+    holds an empty list means the operator deleted the seed, and putting it
+    back every time would be the surface arguing with him.
+    """
+    with _notes_guard():
+        items = _notes_read()
+        if items is None:
+            items = ([] if onboarding_config() else
+                     [notes_normalise(n) for n in SEED_NOTES])
+            _notes_write(items)
+        return items
+
+
+def _note_field(payload, key):
+    """One content field, coerced, stripped and capped.
+
+    Module-level rather than a closure inside notes_normalise() because the
+    edit path needs exactly the same treatment. A second copy of this that
+    drifted by one cap would mean a field you can type into but not save.
+    """
+    v = payload.get(key)
+    if v is None:
+        return ""
+    if not isinstance(v, str):
+        v = str(v)
+    return v.strip()[:NOTE_LIMITS[key]]
+
+
+def _note_title(title, original):
+    """A note with no title but a body is normal — it is what a raw voice dump
+    looks like before anyone distils it. Naming it from its own first line
+    beats showing a blank card, and is replaced the moment a real title
+    arrives. Shared with the edit path so clearing a title behaves the same as
+    never having typed one."""
+    if title:
+        return title
+    first = (original.splitlines() or [""])[0].strip()
+    if len(first) > 70:
+        return first[:70].rstrip() + "…"
+    return first or "untitled"
+
+
+def notes_normalise(payload):
+    """A trusted note from an untrusted dict. The ONLY door into the store.
+
+    This is the write path Trace will use when he turns a voice transcript into
+    an organised note, so it is written for a caller that may be wrong rather
+    than one that is merely careless:
+
+      * Only the five content keys are read. Anything else in the payload \u2014
+        `id`, `created`, a path, a flag \u2014 is dropped on the floor rather than
+        merged, so no caller can overwrite another note by naming its id, and
+        no future field can be set by a client that happens to guess its name.
+      * `id` and `created` are assigned HERE, from the server's clock and
+        counter. A client-supplied id is the difference between adding a note
+        and silently replacing one.
+      * Every string is coerced, stripped and truncated. `status` must be one
+        of four literals or it becomes `inbox`; there is no path by which an
+        arbitrary string reaches the file.
+
+    The result is that the worst a confused agent can do to this file is add a
+    badly-worded note, which the operator can see and delete. It cannot reach
+    anything else on the machine, because nothing here takes a path.
+    """
+    if not isinstance(payload, dict):
+        payload = {}
+
+    def field(key):
+        return _note_field(payload, key)
+
+    status = payload.get("status")
+    status = status if status in NOTE_STATUSES else "inbox"
+
+    title = _note_title(field("title"), field("original"))
+    original = field("original")
+
+    # `source` is a label, not a capability \u2014 it says where the note came from
+    # so the list can show that Trace wrote it. Closed set, same reasoning as
+    # status.
+    source = payload.get("source")
+    source = source if source in ("phone", "voice", "trace") else "phone"
+
+    return {
+        "id": "n%d-%s" % (time.time() * 1000, uuid.uuid4().hex),
+        "created": int(time.time()),
+        "title": title,
+        "original": original,
+        "concept": field("concept"),
+        "next": field("next"),
+        "status": status,
+        "source": source,
+    }
+
+
+# The mini-format. One textarea is the whole add form, because a four-field
+# form is four decisions at the moment the operator has the least patience for
+# them \u2014 the idea is in his head and the point is to get it out.
+#
+# So: type anything and it is captured raw. Label the lines and they are read.
+# Nothing is mandatory and the raw text is kept either way, so this can only
+# add structure, never lose it.
+NOTE_LABELS = {"title": "title", "concept": "concept", "idea": "concept",
+               "next": "next", "move": "next", "next move": "next"}
+_NOTE_LABEL_RE = re.compile(r"^\s*([a-z ]{3,9})\s*:\s*(.*)$", re.I)
+
+
+def note_from_text(raw):
+    """Labelled lines into fields. Everything is kept as `original` regardless.
+
+    The raw text is preserved verbatim and unconditionally \u2014 a transcript is
+    the evidence, and a distillation that loses what was actually said cannot
+    be checked against anything.
+    """
+    raw = (raw or "").strip()
+    out = {"original": raw, "source": "phone"}
+    current = None
+    for line in raw.splitlines():
+        m = _NOTE_LABEL_RE.match(line)
+        key = NOTE_LABELS.get(m.group(1).strip().lower()) if m else None
+        if key:
+            out[key] = m.group(2).strip()
+            current = key
+        elif current and line.strip() and line[:1].isspace():
+            # A labelled value continued on the next line — and INDENTED, which
+            # is the whole condition. Continuing on any non-empty line instead
+            # was the first version, and it quietly ate the sentence after the
+            # last label: "next: pick the scheduler" followed by a line of
+            # ordinary prose became a next move with someone's narration
+            # stapled to it. A textarea soft-wraps without inserting newlines,
+            # so a real wrap never reaches here anyway; every line break in
+            # this text was typed on purpose, and indenting one is a thing a
+            # person does deliberately. Unindented prose stays out of the
+            # fields and is still kept whole in `original`, so nothing is lost
+            # by reading it conservatively.
+            out[current] = (out[current] + " " + line.strip()).strip()
+        else:
+            current = None
+    return out
+
+
+def notes_add(payload):
+    """Normalise, prepend, cap, persist. Returns the stored note."""
+    with _notes_guard():
+        note = notes_normalise(payload)
+        items = _notes_read()
+        if items is None:
+            items = ([] if onboarding_config() else
+                     [notes_normalise(n) for n in SEED_NOTES])
+        items.insert(0, note)
+        del items[NOTES_MAX:]
+        _notes_write(items)
+    return note
+
+
+def notes_set_status(note_id, status):
+    """Returns the updated note, or None if the id or status is not real."""
+    if status not in NOTE_STATUSES:
+        return None
+    with _notes_guard():
+        items = _notes_read() or []
+        for n in items:
+            if n.get("id") == note_id:
+                n["status"] = status
+                _notes_write(items)
+                return n
+    return None
+
+
+def notes_update(note_id, payload):
+    """Edit an existing note's content in place. Returns it, or None.
+
+    PARTIAL by design: only keys actually present in the payload are touched.
+    A caller that knows about three fields cannot blank a fourth it has never
+    heard of, which is what makes this safe to point a future version of Trace
+    at — he can correct a concept without having to resend the transcript.
+
+    What is NOT editable here is as deliberate as what is. `id`, `created` and
+    `source` are what the note IS rather than what it says; letting an edit
+    rewrite them would mean a note could quietly become a different note, and
+    `source` in particular is the only thing distinguishing what the operator
+    wrote from what an agent did. `status` is left alone because it has its own
+    endpoint — it is a different gesture, made from the list without opening
+    anything, and folding it in here would mean every edit had to carry a
+    status or risk resetting one.
+    """
+    if not isinstance(payload, dict):
+        return None
+    with _notes_guard():
+        items = _notes_read() or []
+        for n in items:
+            if n.get("id") != note_id:
+                continue
+            edited = {k: _note_field(payload, k)
+                      for k in ("title", "concept", "next", "original")
+                      if k in payload}
+            merged = dict(n, **edited)
+            # Every field blanked would persist a note that renders as an
+            # untitled ghost with no way back to what it said. Refused rather
+            # than written, because the undo for this does not exist.
+            if not (merged["title"] or merged["original"] or merged["concept"]):
+                return None
+            merged["title"] = _note_title(merged["title"], merged["original"])
+            merged["edited"] = int(time.time())
+            n.clear()
+            n.update(merged)
+            _notes_write(items)
+            return n
+    return None
+
+
+def notes_summary():
+    """The sub-label on the phone key: what is waiting, not how many exist.
+
+    A total is a number you stop reading after the first week. The two counts
+    that change behaviour are what has not been distilled yet and what is ready
+    to act on, so those are the two that get said out loud.
+    """
+    try:
+        items = notes_all()
+    except Exception:
+        return "notes"
+    inbox = sum(1 for n in items if n.get("status") == "inbox")
+    ready = sum(1 for n in items if n.get("status") == "ready")
+    if not items:
+        return "nothing captured"
+    if not inbox and not ready:
+        return "all clear"
+    return " · ".join(p for p in (("%d in inbox" % inbox) if inbox else "",
+                                  ("%d ready" % ready) if ready else "") if p)
+
+
+def notes_delete(note_id):
+    with _notes_guard():
+        items = _notes_read() or []
+        keep = [n for n in items if n.get("id") != note_id]
+        if len(keep) == len(items):
+            return False
+        _notes_write(keep)
+        return True
+
+
+NOTES_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark"><title>__MACHINE__ // notes</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="notes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<style>__VT__
+ *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+ html,body{height:100%}
+ body{background:#05070a;color:#d6e4ec;
+   font:16px/1.45 ui-monospace,"SF Mono",Menlo,monospace;
+   padding:max(14px,env(safe-area-inset-top)) 14px max(22px,env(safe-area-inset-bottom))}
+ header{display:flex;align-items:baseline;gap:10px;padding:4px 2px 14px}
+ header h1{font-size:13px;font-weight:400;letter-spacing:.26em;
+   text-transform:uppercase;color:#4fe3c1}
+ header .sub{flex:1;font-size:11px;letter-spacing:.16em;color:#2b3a45}
+ header a{font-size:12px;letter-spacing:.12em;color:#4a5b68;text-decoration:none}
+ header a:active{color:#4fe3c1}
+
+ /* ── capture ──────────────────────────────────────────────────────────────
+    One field. A four-input form is four decisions at the moment the operator
+    has least patience for them, and the idea is already leaving his head. */
+ .add{border:2px solid #18222b;border-radius:14px;background:#0a0e13;padding:11px}
+ .add:focus-within{border-color:#1d5f52}
+ .add textarea{width:100%;min-height:62px;resize:none;border:0;outline:0;
+   background:none;color:#d6e4ec;font:inherit;line-height:1.5}
+ .add textarea::placeholder{color:#2f414d}
+ .addrow{display:flex;align-items:center;gap:10px;padding-top:9px}
+ .hint{flex:1;font-size:10px;letter-spacing:.1em;color:#2b3a45}
+ .add button{border:2px solid #1d5f52;border-radius:11px;background:#0b1a17;
+   color:#4fe3c1;font:inherit;font-size:12px;letter-spacing:.18em;
+   text-transform:uppercase;padding:9px 17px;min-height:40px}
+ .add button:active{border-color:#4fe3c1;background:#10241f}
+ .add button[disabled]{opacity:.35}
+
+ /* ── filters ──────────────────────────────────────────────────────────── */
+ .tabs{display:flex;gap:6px;overflow-x:auto;padding:16px 0 12px;
+   scrollbar-width:none}
+ .tabs::-webkit-scrollbar{display:none}
+ .tab{flex:0 0 auto;border:1px solid #18222b;border-radius:999px;
+   background:none;color:#4a5b68;font:inherit;font-size:10.5px;
+   letter-spacing:.14em;text-transform:uppercase;padding:7px 12px}
+ .tab b{font-weight:400;color:#2b3a45;padding-left:5px}
+ .tab.on{border-color:#1d5f52;background:#0b1a17;color:#4fe3c1}
+ .tab.on b{color:#2f7d6d}
+
+ /* ── the card ─────────────────────────────────────────────────────────────
+    Title, concept, move. Collapsed it is a claim and an action; that is the
+    whole reason this is not a list of sentences. */
+ .card{border:2px solid #18222b;border-radius:14px;background:#0a0e13;
+   padding:13px 14px;margin-bottom:10px}
+ .card.op{border-color:#243542}
+ .card h2{font-size:16px;font-weight:400;line-height:1.3;color:#d6e4ec;
+   letter-spacing:.01em}
+ .card .cc{margin-top:7px;font-size:13.5px;line-height:1.5;color:#8fa3b0}
+ /* Clamped until opened. A card that can be any height is a list you scroll
+    past rather than read. */
+ .card:not(.op) .cc{display:-webkit-box;-webkit-line-clamp:2;
+   -webkit-box-orient:vertical;overflow:hidden}
+ .card .mv{margin-top:9px;font-size:13px;line-height:1.45;color:#4fe3c1;
+   display:flex;gap:7px}
+ .card .mv i{font-style:normal;color:#2f7d6d;flex:0 0 auto}
+ .card:not(.op) .mv span{display:-webkit-box;-webkit-line-clamp:1;
+   -webkit-box-orient:vertical;overflow:hidden}
+ .card.done h2{color:#4a5b68}
+ .card.done .cc,.card.done .mv{opacity:.45}
+
+ /* The original, only once opened, and scrolled inside the card rather than
+    lengthening the page — a 900-word transcript must not push every other
+    idea below the fold. */
+ .orig{margin-top:12px;padding-top:11px;border-top:1px solid #18222b;
+   max-height:38vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+   font-size:12.5px;line-height:1.6;color:#6f8593;white-space:pre-wrap;
+   overflow-wrap:anywhere}
+ .orig em{display:block;font-style:normal;font-size:9.5px;letter-spacing:.18em;
+   text-transform:uppercase;color:#2b3a45;margin-bottom:6px}
+
+ .foot{display:flex;align-items:center;gap:8px;margin-top:11px}
+ /* The status chip IS the control. One tap advances it, which is the fastest
+    thing a thumb can do and needs no menu, no sheet and no precision. */
+ .chip{border:1px solid;border-radius:999px;background:none;font:inherit;
+   font-size:10px;letter-spacing:.17em;text-transform:uppercase;
+   padding:6px 11px;min-height:32px}
+ .chip.inbox{color:#8fa3b0;border-color:#2c3c48}
+ .chip.ready{color:#4fe3c1;border-color:#1d5f52;background:#0b1a17}
+ .chip.parked{color:#d8a657;border-color:#4a3c22}
+ .chip.done{color:#3f6b5e;border-color:#20342e}
+ .foot .when{flex:1;font-size:10px;letter-spacing:.12em;color:#2b3a45}
+ .foot .src{font-size:9px;letter-spacing:.16em;text-transform:uppercase;
+   color:#2b3a45}
+ .foot .del,.foot .edit{border:0;background:none;color:#2b3a45;font:inherit;
+   font-size:11px;letter-spacing:.1em;padding:6px 4px}
+ /* Both only exist once the card is open. Edit and delete on a collapsed card
+    would put a destructive target a thumb's width from the status chip, on the
+    one screen most likely to be used while walking. */
+ .card:not(.op) .del,.card:not(.op) .edit{display:none}
+ .foot .del:active{color:#c2554d}
+ .foot .edit:active{color:#4fe3c1}
+
+ /* ── the editor ───────────────────────────────────────────────────────────
+    The same four fields the card shows, in the same order, in place. Opening
+    a separate screen to edit would break the one rule this surface has — that
+    detail happens where the idea already is. */
+ /* No top rule. The editor REPLACES the card body rather than following it, so
+    a separator here draws a line under nothing. */
+ .ed label{display:block;font-size:9.5px;letter-spacing:.18em;
+   text-transform:uppercase;color:#2b3a45;margin:11px 0 5px}
+ .ed label:first-child{margin-top:0}
+ .ed input,.ed textarea{width:100%;border:1px solid #1b2731;border-radius:9px;
+   background:#05070a;color:#d6e4ec;font:inherit;font-size:13.5px;line-height:1.5;
+   padding:9px 10px;resize:vertical;-webkit-appearance:none}
+ .ed input:focus,.ed textarea:focus{outline:0;border-color:#1d5f52}
+ /* Heights are set in script to fit the text — see autosize(). These are the
+    floor for an empty field and the ceiling for a long transcript, which is
+    the one field that can be any length at all. */
+ .ed textarea{min-height:58px;max-height:44vh}
+ .foot .save{border:1px solid #1d5f52;border-radius:999px;background:#0b1a17;
+   color:#4fe3c1;font:inherit;font-size:10px;letter-spacing:.17em;
+   text-transform:uppercase;padding:6px 13px;min-height:32px}
+ .foot .save:active{border-color:#4fe3c1;background:#10241f}
+ .foot .cancel{border:0;background:none;color:#4a5b68;font:inherit;font-size:11px;
+   letter-spacing:.1em;padding:6px 4px}
+
+ .empty{text-align:center;color:#2b3a45;font-size:12px;letter-spacing:.12em;
+   padding:38px 0}
+ .err{color:#c2554d;font-size:11px;letter-spacing:.1em;padding:8px 2px}
+ @media(min-width:620px){body{max-width:620px;margin:0 auto}}
+</style></head><body>
+<header><h1>Notes β</h1><span class="sub" id="count"></span><a href="/phone">&lsaquo; home</a></header>
+
+<form class="add" id="add">
+ <textarea id="txt" rows="2" placeholder="paste a transcript, or type the idea" autocapitalize="sentences"></textarea>
+ <div class="addrow">
+   <span class="hint">title: concept: next: to distil &middot; raw is always kept</span>
+   <button type="submit" id="go">Capture</button>
+ </div>
+</form>
+<div class="err" id="err" hidden></div>
+
+<div class="tabs" id="tabs"></div>
+<div id="list"></div>
+
+<script>
+ var STATUSES = __STATUSES__;
+ var notes = [], filter = 'all', open = null;
+ // The note being edited, and a pristine copy of it taken on the way in so
+ // cancel has something true to restore. Keystrokes are written straight into
+ // the note object rather than read off the DOM at save time, so a redraw
+ // from anywhere — a filter tap, a status change elsewhere — re-renders what
+ // you had typed instead of throwing it away.
+ var editing = null, backup = null;
+ var D = function(i){ return document.getElementById(i) };
+
+ function esc(s){
+   return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c] });
+ }
+
+ function ago(ts){
+   var s = Math.max(0, Math.floor(Date.now()/1000 - ts));
+   if(s < 90) return 'just now';
+   if(s < 5400) return Math.round(s/60) + 'm ago';
+   if(s < 129600) return Math.round(s/3600) + 'h ago';
+   return Math.round(s/86400) + 'd ago';
+ }
+
+ // Status is the sort. Inbox first because undistilled ideas are the ones that
+ // rot; done sinks because it is a record, not a queue.
+ function rank(n){ var i = STATUSES.indexOf(n.status); return i < 0 ? 0 : i }
+
+ // Sorting is applied to `notes` at chosen moments rather than on every draw,
+ // and that is the whole point of it being a separate function.
+ //
+ // Re-sorting inside draw() meant a status tap moved the card out from under
+ // the thumb that tapped it: promote an inbox note to ready and it leaves the
+ // inbox block mid-gesture, so the next tap lands on whatever slid up into the
+ // gap. The list settles on arrival, on a filter change and on a return to the
+ // tab — never as a consequence of touching something.
+ function resort(){
+   notes.sort(function(a, b){
+     return rank(a) - rank(b) || (b.created || 0) - (a.created || 0) });
+ }
+ function ordered(){
+   return notes.filter(function(n){ return filter === 'all' || n.status === filter });
+ }
+
+ function drawTabs(){
+   var all = [['all', notes.length]].concat(STATUSES.map(function(s){
+     return [s, notes.filter(function(n){ return n.status === s }).length] }));
+   D('tabs').innerHTML = all.map(function(p){
+     return '<button class="tab' + (filter === p[0] ? ' on' : '') +
+            '" data-f="' + p[0] + '">' + p[0] + '<b>' + p[1] + '</b></button>' }).join('');
+ }
+
+ function drawList(){
+   var rows = ordered();
+   if(!rows.length){
+     D('list').innerHTML = '<div class="empty">nothing ' +
+       (filter === 'all' ? 'captured yet' : 'in ' + filter) + '</div>';
+     return;
+   }
+   D('list').innerHTML = rows.map(function(n){
+     var isOpen = n.id === open, isEd = n.id === editing;
+
+     // Editing replaces the card's body, not the card. The title you are
+     // typing stays where the title was.
+     var body = isEd
+       ? '<div class="ed">' +
+           '<label>title</label>' +
+           '<input data-f="title" value="' + esc(n.title) + '">' +
+           '<label>concept</label>' +
+           '<textarea data-f="concept">' + esc(n.concept) + '</textarea>' +
+           '<label>next move</label>' +
+           '<textarea data-f="next">' + esc(n.next) + '</textarea>' +
+           '<label>original</label>' +
+           '<textarea data-f="original">' + esc(n.original) + '</textarea>' +
+         '</div>'
+       : '<h2>' + esc(n.title) + '</h2>' +
+         (n.concept ? '<div class="cc">' + esc(n.concept) + '</div>' : '') +
+         (n.next ? '<div class="mv"><i>&rarr;</i><span>' + esc(n.next) + '</span></div>' : '') +
+         (isOpen && n.original
+            ? '<div class="orig"><em>original</em>' + esc(n.original) + '</div>' : '');
+
+     // While editing, the foot is save/cancel and nothing else. Leaving the
+     // status chip and delete in reach of a thumb that is aiming at Save is
+     // how you lose a note you were in the middle of fixing.
+     var foot = isEd
+       ? '<button class="cancel" data-cancel="' + esc(n.id) + '">cancel</button>' +
+         '<span class="when"></span>' +
+         '<button class="save" data-save="' + esc(n.id) + '">save</button>'
+       : '<button class="chip ' + esc(n.status) + '" data-chip="' + esc(n.id) + '">' +
+            esc(n.status) + '</button>' +
+         '<span class="when">' + ago(n.created) +
+            (n.edited ? ' &middot; edited' : '') + '</span>' +
+         (n.source && n.source !== 'phone'
+            ? '<span class="src">' + esc(n.source) + '</span>' : '') +
+         '<button class="edit" data-edit="' + esc(n.id) + '">edit</button>' +
+         '<button class="del" data-del="' + esc(n.id) + '">delete</button>';
+
+     return '<article class="card ' + esc(n.status) +
+       (isOpen || isEd ? ' op' : '') + '" data-id="' + esc(n.id) + '">' +
+       body + '<div class="foot">' + foot + '</div></article>';
+   }).join('');
+ }
+
+ function draw(){ drawTabs(); drawList(); if(editing) autosizeAll();
+   D('count').textContent = notes.length + (notes.length === 1 ? ' idea' : ' ideas'); }
+
+ function fail(m){ var e = D('err'); e.textContent = m; e.hidden = !m }
+
+ async function pull(){
+   try{
+     var r = await fetch('/api/notes');
+     if(!r.ok) throw new Error('HTTP ' + r.status);
+     notes = (await r.json()).notes || [];
+     resort();
+     fail('');
+   }catch(e){ fail('could not load notes — ' + e.message) }
+   draw();
+ }
+
+ // ── capture ───────────────────────────────────────────────────────────────
+ D('add').addEventListener('submit', async function(e){
+   e.preventDefault();
+   var t = D('txt').value.trim();
+   if(!t) return;
+   D('go').disabled = true;
+   try{
+     var r = await fetch('/api/notes', {method:'POST',
+       headers:{'Content-Type':'application/json'}, body: JSON.stringify({text: t})});
+     if(!r.ok) throw new Error('HTTP ' + r.status);
+     var n = (await r.json()).note;
+     D('txt').value = '';
+     notes.unshift(n);
+     // Straight to open: the one thing you want after capturing a raw dump is
+     // to see what it became, and on a phone that is otherwise a scroll away.
+     open = n.id; filter = 'all';
+     fail(''); draw();
+   }catch(e){ fail('not saved — ' + e.message) }
+   D('go').disabled = false;
+ });
+
+ // Enter sends from a real keyboard; on a phone Return must still insert a
+ // newline, because a transcript pasted in has them and a note being typed
+ // wants them.
+ D('txt').addEventListener('keydown', function(e){
+   if(e.key === 'Enter' && (e.metaKey || e.ctrlKey)){
+     e.preventDefault(); D('add').requestSubmit();
+   }
+ });
+
+ D('tabs').addEventListener('click', function(e){
+   var b = e.target.closest('.tab'); if(!b) return;
+   filter = b.dataset.f; resort(); draw();
+ });
+
+ // A textarea at a fixed height clips its own text halfway down a line, which
+ // reads as damage rather than as scrolling. Fitting it to its content means
+ // you can see the whole field you are being asked to correct — capped, since
+ // `original` holds transcripts and an honest fit for one of those would be
+ // taller than the phone.
+ function autosize(el){
+   el.style.height = 'auto';
+   el.style.height = Math.min(el.scrollHeight, innerHeight * 0.44) + 'px';
+ }
+ function autosizeAll(){
+   Array.prototype.forEach.call(document.querySelectorAll('.ed textarea'), autosize);
+ }
+
+ // Typing goes straight into the note. No redraw, so the caret stays put.
+ D('list').addEventListener('input', function(e){
+   var f = e.target.dataset && e.target.dataset.f;
+   if(!f || !editing) return;
+   var n = notes.find(function(x){ return x.id === editing });
+   if(n) n[f] = e.target.value;
+   if(e.target.tagName === 'TEXTAREA') autosize(e.target);
+ });
+
+ function stopEditing(restore){
+   if(restore && backup){
+     var n = notes.find(function(x){ return x.id === editing });
+     if(n) Object.assign(n, backup);
+   }
+   editing = null; backup = null;
+ }
+
+ D('list').addEventListener('click', async function(e){
+   var chip = e.target.closest('[data-chip]');
+   var del  = e.target.closest('[data-del]');
+   var ed   = e.target.closest('[data-edit]');
+   var save = e.target.closest('[data-save]');
+   var canc = e.target.closest('[data-cancel]');
+   var card = e.target.closest('.card');
+
+   if(ed){
+     var n0 = notes.find(function(x){ return x.id === ed.dataset.edit });
+     if(!n0) return;
+     editing = n0.id; open = n0.id;
+     backup = {title:n0.title, concept:n0.concept, next:n0.next, original:n0.original};
+     draw();
+     var first = document.querySelector('.ed input'); if(first) first.focus();
+     return;
+   }
+
+   if(canc){ stopEditing(true); draw(); return }
+
+   if(save){
+     var n1 = notes.find(function(x){ return x.id === save.dataset.save });
+     if(!n1) return;
+     try{
+       var r3 = await fetch('/api/notes/edit', {method:'POST',
+         headers:{'Content-Type':'application/json'},
+         body: JSON.stringify({id:n1.id, title:n1.title, concept:n1.concept,
+                               next:n1.next, original:n1.original})});
+       if(!r3.ok){
+         // 404 here is the server refusing to persist a note with nothing
+         // left in it. Say that, rather than the status code.
+         throw new Error(r3.status === 404
+           ? 'a note needs a title, a concept or its original text'
+           : 'HTTP ' + r3.status);
+       }
+       // The server's copy wins — it did the truncating, and the title it
+       // derived for a cleared field is the one that is actually stored.
+       Object.assign(n1, (await r3.json()).note);
+       stopEditing(false); fail(''); draw();
+     }catch(err){ fail('not saved — ' + err.message) }   // stays in the editor
+     return;
+   }
+
+   // A tap inside the editor is aimed at a field, not at the card.
+   if(e.target.closest('.ed')) return;
+
+   if(chip){
+     // Cycles. Four states, so the worst case is three taps and every one of
+     // them is reversible by tapping again — no menu, no undo to design.
+     var n = notes.find(function(x){ return x.id === chip.dataset.chip });
+     if(!n) return;
+     var want = STATUSES[(STATUSES.indexOf(n.status) + 1) % STATUSES.length];
+     var was = n.status;
+     n.status = want; draw();                    // optimistic: the tap must feel free
+     try{
+       var r = await fetch('/api/notes/status', {method:'POST',
+         headers:{'Content-Type':'application/json'},
+         body: JSON.stringify({id: n.id, status: want})});
+       if(!r.ok) throw new Error('HTTP ' + r.status);
+       fail('');
+     }catch(err){ n.status = was; draw(); fail('status not saved — ' + err.message) }
+     return;
+   }
+
+   if(del){
+     var id = del.dataset.del;
+     if(!confirm('Delete this note? The original text goes with it.')) return;
+     try{
+       var r2 = await fetch('/api/notes/delete', {method:'POST',
+         headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: id})});
+       if(!r2.ok) throw new Error('HTTP ' + r2.status);
+       notes = notes.filter(function(x){ return x.id !== id });
+       fail(''); draw();
+     }catch(err){ fail('not deleted — ' + err.message) }
+     return;
+   }
+
+   // Collapsing the card you are editing would hide the fields mid-sentence.
+   if(card && card.dataset.id === editing) return;
+   if(card){ open = (open === card.dataset.id) ? null : card.dataset.id; draw() }
+ });
+
+ pull();
+ // Trace writes to this file too. Coming back to the tab is the moment a note
+ // he added while you were away should appear, and is cheaper than a poll.
+ document.addEventListener('visibilitychange', function(){
+   // Not while editing. Switching apps mid-sentence — to check a number, to
+   // read the transcript again — is normal, and a refresh on the way back
+   // would replace what you had typed with what is still on disk.
+   if(document.visibilityState === 'visible' && !editing) pull();
+ });
+</script>
+</body></html>"""
+
+
+CALL_TRACE_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark"><title>Call Trace</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Call Trace">
+<link rel="apple-touch-icon" href="/trace-192.png">
+<link rel="icon" href="data:,">
+<style>
+ *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+ html,body{height:100%}
+ body{background:#05070a;color:#d6e4ec;font:15px/1.5 ui-monospace,"SF Mono",Menlo,monospace;
+   display:flex;flex-direction:column;
+   padding:max(14px,env(safe-area-inset-top)) 14px max(14px,env(safe-area-inset-bottom))}
+ header{display:flex;align-items:center;gap:10px;padding-bottom:12px;flex:0 0 auto}
+ header img{width:34px;height:34px;border-radius:50%;box-shadow:0 0 0 1px #1d2b33}
+ header b{color:#4fe3c1;font-weight:400;letter-spacing:.2em;text-transform:uppercase;font-size:14px}
+ header .sub{color:#4a5b68;font-size:10px;letter-spacing:.1em;display:block}
+ header a{color:#4a5b68;text-decoration:none;font-size:11px;letter-spacing:.14em}
+ button.tog{margin-left:auto;height:28px;padding:0 10px;border-radius:9px;background:#101a22;
+   color:#4a5b68;font-size:10px;letter-spacing:.12em}
+ button.tog.on{background:#1d5a4a;color:#8affd8;box-shadow:0 0 0 1px #2f8f74}
+ header .sub.live{color:#7fe6cd}
+ @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+ header .sub.busy{animation:pulse 1.3s ease-in-out infinite}
+ .m.sp{border-color:#2c6c72}
+ #log{flex:1 1 auto;overflow-y:auto;display:flex;flex-direction:column;gap:10px;
+   padding:4px 0 12px;-webkit-overflow-scrolling:touch}
+ .m{max-width:88%;padding:9px 12px;border-radius:13px;white-space:pre-wrap;
+   word-break:break-word;font-size:14px;line-height:1.5}
+ .me{align-self:flex-end;background:#123a4a;color:#dff3fb;border-bottom-right-radius:4px}
+ .tr{align-self:flex-start;background:#0f1620;color:#cfe0ea;border:1px solid #1b2833;
+   border-bottom-left-radius:4px}
+ .sys{align-self:center;color:#4a5b68;font-size:11px;letter-spacing:.08em;text-align:center}
+ .err{align-self:center;color:#e2766a;font-size:12px;text-align:center}
+ form{flex:0 0 auto;display:flex;gap:8px;align-items:flex-end;padding-top:10px;
+   border-top:1px solid #131e26}
+ textarea{flex:1;background:#0b1219;color:#d6e4ec;border:1px solid #1b2833;border-radius:12px;
+   padding:11px 12px;font:15px/1.45 inherit;resize:none;max-height:132px;min-height:44px}
+ textarea:focus{outline:none;border-color:#2c6c72}
+ button{flex:0 0 auto;height:44px;min-width:44px;border:0;border-radius:12px;
+   background:#14313d;color:#7fe6cd;font:13px/1 inherit;letter-spacing:.1em;padding:0 14px}
+ button:disabled{opacity:.4}
+ button.rec{background:#4a1d1d;color:#ff9c8f}
+ .hint{flex:0 0 auto;color:#33424d;font-size:10px;letter-spacing:.08em;text-align:center;
+   padding-top:8px}
+</style></head><body>
+<header>
+  <img src="/trace-192.png" alt="">
+  <div><b>Call Trace</b><span class="sub" id="stat">ready</span></div>
+  __HANDS_FREE_BTN__
+  <a href="/phone">close</a>
+</header>
+<div id="log"><div class="sys">__INTRO__</div></div>
+<form id="f">
+  <textarea id="t" rows="1" placeholder="message trace" autocomplete="off"></textarea>
+  <button type="submit" id="go">SEND</button>
+</form>
+<div class="hint">__HINT__</div>
+<script>
+const log=document.getElementById('log'),ta=document.getElementById('t');
+const f=document.getElementById('f'),go=document.getElementById('go');
+let since=Math.floor(Date.now()/1000),polling=null,rec=null,chunks=[];
+const seenNames=new Set();
+function add(cls,txt){const d=document.createElement('div');d.className='m '+cls;d.textContent=txt;
+  log.appendChild(d);log.scrollTop=log.scrollHeight;return d;}
+function note(cls,txt){const d=document.createElement('div');d.className=cls;d.textContent=txt;
+  log.appendChild(d);log.scrollTop=log.scrollHeight;return d;}
+ta.addEventListener('input',()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,132)+'px';});
+// Enter sends on a physical keyboard; on a phone the return key inserts a newline.
+ta.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!e.shiftKey&&window.matchMedia('(min-width:760px)').matches){
+    e.preventDefault();f.requestSubmit();}
+});
+async function poll(){
+  try{
+    const r=await fetch('/api/trace-replies?since='+since);
+    if(!r.ok)return;
+    const d=await r.json();
+    for(const rep of (d.replies||[])){
+      // Same basename in pending and sent — show and speak it exactly once.
+      if(seenNames.has(rep.name))continue;
+      seenNames.add(rep.name);
+      for(const part of (rep.parts||[])){add('tr',part);say(part);}
+      if(rep.at>since)since=rep.at;
+    }
+  }catch(e){}
+}
+function watch(){if(polling)clearInterval(polling);polling=setInterval(poll,3000);
+  setTimeout(()=>{if(polling){clearInterval(polling);polling=null;}},240000);}
+
+// ── voice out ────────────────────────────────────────────────────────
+// Replies are spoken through /api/speak (the operator's own cloned voice on
+// :8890). Queued and played strictly in order: two overlapping <audio> objects
+// is the one thing that makes a walkie-talkie unusable.
+// Absent when Grace is retired, which is the default. Every hands-free path
+// below is guarded on this one element rather than on a separate flag, so there
+// is one fact — the button is there or it is not — instead of two that can
+// disagree. A stale wbhf=1 in localStorage must NOT survive the button: it
+// would leave handsFree true with no mic and no way to turn it off, and
+// epochOk() would start admitting turns that can never arrive.
+const hf=document.getElementById('hf');
+let handsFree=!!hf&&localStorage.getItem('wbhf')==='1';
+let speakQ=[],speaking=false,curAudio=null;   // items: {text, voice}
+let micStream=null,ac=null,analyser=null,vadTimer=null,graceHist=[];
+let callEpoch=0;
+
+// Every turn is stamped with the epoch it began in. Ending a call bumps the
+// epoch, so a transcription or a Grace reply that lands afterwards is dropped
+// instead of speaking, re-arming the mic, or routing to Trace after hang-up.
+function epochOk(e){return e===callEpoch&&handsFree;}
+function paintHF(){if(!hf)return;hf.classList.toggle('on',handsFree);
+  hf.textContent=handsFree?'END CALL':'HANDS FREE';}
+const stat=document.getElementById('stat');
+function setStat(s,busy,live){stat.textContent=s;
+  stat.classList.toggle('busy',!!busy);stat.classList.toggle('live',!!live);}
+
+// ── one mic, two jobs ────────────────────────────────────────────────
+// The stream stays open for the whole call and a single analyser drives both
+// end-of-turn detection and barge-in. Opening a fresh getUserMedia per turn
+// costs a permission check and ~300ms of warm-up on Safari, which is audible
+// as a clipped first word.
+const SPEAK_RMS=0.020;   // above this is speech, not room noise
+const MIN_SPEECH_MS=350; // a click or a chair creak is not a turn
+const TAIL_MS=600;       // speaker ring-out before the mic is trusted again
+let lastSpoken='';
+
+// Normalised compare, used to throw away the mic hearing Grace through the
+// speaker. Echo cancellation does not survive a laptop speaker at volume.
+function looksLikeEcho(heard){
+  const norm=s=>s.toLowerCase().replace(/[^a-z0-9 ]/g,'').replace(/[ ]+/g,' ').trim();
+  const a=norm(heard),b=norm(lastSpoken);
+  if(!a||!b)return false;
+  if(b.includes(a)&&a.length>8)return true;
+  const aw=new Set(a.split(' ')),bw=b.split(' ');
+  if(!bw.length)return false;
+  const hit=bw.filter(w=>aw.has(w)).length/bw.length;
+  return hit>0.6;
+}
+const HANG_MS=1200;      // silence this long ends your turn
+const MAX_TURN_MS=30000; // a stuck-open mic must not record forever
+function rms(){
+  if(!analyser)return 0;
+  const buf=new Float32Array(analyser.fftSize);
+  analyser.getFloatTimeDomainData(buf);
+  let s=0;for(let i=0;i<buf.length;i++)s+=buf[i]*buf[i];
+  return Math.sqrt(s/buf.length);
+}
+async function openMic(){
+  if(micStream)return true;
+  if(!navigator.mediaDevices){note('err','no microphone on this browser');return false;}
+  try{
+    micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+    ac=new (window.AudioContext||window.webkitAudioContext)();
+    if(ac.state==='suspended')await ac.resume();
+    analyser=ac.createAnalyser();analyser.fftSize=1024;
+    ac.createMediaStreamSource(micStream).connect(analyser);
+    return true;
+  }catch(e){note('err','microphone blocked');return false;}
+}
+function closeMic(){
+  if(vadTimer){clearInterval(vadTimer);vadTimer=null;}
+  if(rec&&rec.state==='recording'){discardRec=true;rec.stop();}
+  if(micStream){micStream.getTracks().forEach(t=>t.stop());micStream=null;}
+  if(ac){try{ac.close();}catch(e){}ac=null;}
+  analyser=null;
+}
+let discardRec=false;
+function listen(){
+  if(!handsFree||!micStream)return;
+  chunks=[];discardRec=false;
+  rec=new MediaRecorder(micStream);
+  rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
+  const turnEpoch=callEpoch;
+  rec.onstop=async()=>{
+    if(vadTimer){clearInterval(vadTimer);vadTimer=null;}
+    if(discardRec){discardRec=false;return;}
+    if(!epochOk(turnEpoch))return;          // call ended mid-utterance
+    setStat('thinking…',true,true);
+    try{
+      const r=await fetch('/api/listen',{method:'POST',body:new Blob(chunks,{type:'audio/webm'})});
+      const d=await r.json();
+      if(!epochOk(turnEpoch))return;
+      if(!d.text||looksLikeEcho(d.text)){
+        // Empty or the mic hearing Grace. Back off instead of re-arming
+        // instantly — a tight retry loop is what made the status flicker
+        // between thinking and speaking without anyone saying a word.
+        // Nothing usable — wait a beat and listen again. No counter, no
+        // self-muting: an assistant that switches itself off mid-conversation
+        // is worse than one that waits.
+        if(handsFree)setTimeout(()=>{if(handsFree)listen();},600);
+        else setStat('ready',false,false);
+        return;
+      }
+      add('me',d.text);
+      graceHist.push({role:'user',text:d.text});
+      const g=await fetch('/api/grace',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({text:d.text,history:graceHist})});
+      const gd=await g.json();
+      if(!epochOk(turnEpoch))return;
+      if(gd.say){add('tr',gd.say);graceHist.push({role:'grace',text:gd.say});say(gd.say,'grace');}
+      // Handed to Trace: his answer arrives through the outbox like any other
+      // reply, so start watching for it and it gets spoken when it lands.
+      if(gd.handed_off){since=Math.floor(Date.now()/1000)-1;watch();note('sys','handed to trace');}
+      else if(!gd.say&&handsFree&&micStream)listen();
+    }catch(e){if(!epochOk(turnEpoch))return;
+      note('err','grace unreachable');if(handsFree&&micStream)listen();}
+  };
+  rec.start();
+  setStat('listening — speak now',false,true);
+  let voicedMs=0,quietSince=0;const t0=Date.now(),TICK=120;
+  vadTimer=setInterval(()=>{
+    if(!rec||rec.state!=='recording')return;
+    const v=rms();
+    if(v>SPEAK_RMS){voicedMs+=TICK;quietSince=0;}
+    else if(voicedMs>=MIN_SPEECH_MS){
+      // Only a turn that actually contained speech can end on silence.
+      if(!quietSince)quietSince=Date.now();
+      else if(Date.now()-quietSince>HANG_MS){rec.stop();return;}
+    }
+    if(Date.now()-t0>MAX_TURN_MS){
+      // Nothing worth sending — drop it and listen again rather than shipping
+      // a minute of room noise to whisper.
+      if(voicedMs<MIN_SPEECH_MS)discardRec=true;
+      rec.stop();
+      if(discardRec&&handsFree)setTimeout(()=>{if(handsFree&&micStream)listen();},200);
+    }
+  },TICK);
+}
+if(hf)hf.addEventListener('click',async()=>{
+  handsFree=!handsFree;localStorage.setItem('wbhf',handsFree?'1':'0');paintHF();
+  if(handsFree){
+    if(!(await openMic())){handsFree=false;paintHF();return;}
+    callEpoch++;
+    note('sys','hands free on — just talk, it hears you stop');
+    listen();
+  }else{
+    callEpoch++;closeMic();speakQ.length=0;
+    if(curAudio){curAudio.pause();curAudio=null;}
+    setStat('ready',false,false);note('sys','call ended');
+  }
+});
+paintHF();
+
+// Read-only diagnostics. Everything here is closure-scoped, which is correct
+// for the app and useless for verifying the mic gate from outside — so this
+// exposes the two facts a test (or a confused operator in the console) needs,
+// and nothing that can change state.
+window.wbCall={
+  get inCall(){return handsFree;},
+  get micEnabled(){
+    if(!micStream)return null;
+    const t=micStream.getAudioTracks()[0];
+    return t?t.enabled:null;
+  },
+};
+async function drain(){
+  if(speaking)return;
+  speaking=true;
+  // HALF DUPLEX. The loop that made this unusable was Grace hearing herself
+  // through the speaker, transcribing it, and answering it. Barge-in is the
+  // casualty and that is the right trade: a feedback loop is worse than having
+  // to wait your turn. With headphones the echo path does not exist and this
+  // costs nothing.
+  if(micStream)micStream.getAudioTracks().forEach(t=>{t.enabled=false;});
+  while(speakQ.length){
+    const item=speakQ.shift();
+    lastSpoken=item.text||'';
+    setStat(item.voice==='grace'?'grace is speaking':'trace is speaking',false,true);
+    try{
+      const r=await fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({text:item.text,voice:item.voice||''})});
+      if(!r.ok)throw new Error(r.status);
+      const url=URL.createObjectURL(await r.blob());
+      const a=new Audio(url);curAudio=a;
+      await new Promise(res=>{a.onended=res;a.onerror=res;a.play().catch(res);});
+      curAudio=null;URL.revokeObjectURL(url);
+    }catch(e){}
+  }
+  speaking=false;
+  // Let the speaker stop ringing before trusting the mic again, or the tail of
+  // Grace's last word becomes the start of your next turn.
+  await new Promise(r=>setTimeout(r,TAIL_MS));
+  if(micStream)micStream.getAudioTracks().forEach(t=>{t.enabled=true;});
+  if(handsFree&&micStream)listen();
+  else setStat('ready',false,false);
+}
+function say(text,voice){speakQ.push({text:text,voice:voice||''});drain();}
+</script></body></html>
+"""
+
 
 CALL_PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -1696,7 +3387,14 @@ CALL_PAGE = """<!doctype html>
  header{display:flex;align-items:center;gap:10px;padding-bottom:10px}
  header b{color:#4fe3c1;font-weight:400;letter-spacing:.2em;text-transform:uppercase;font-size:13px}
  header .sub{color:#4a5b68;font-size:11px;letter-spacing:.1em}
- header a{margin-left:auto;color:#4a5b68;text-decoration:none;font-size:11px;letter-spacing:.14em}
+ header a{color:#4a5b68;text-decoration:none;font-size:11px;letter-spacing:.14em}
+ button.tog{margin-left:auto;height:28px;padding:0 10px;border-radius:9px;background:#101a22;
+   color:#4a5b68;font-size:10px;letter-spacing:.12em}
+ button.tog.on{background:#1d5a4a;color:#8affd8;box-shadow:0 0 0 1px #2f8f74}
+ header .sub.live{color:#7fe6cd}
+ @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+ header .sub.busy{animation:pulse 1.3s ease-in-out infinite}
+ .m.sp{border-color:#2c6c72}
  .hide{display:none}
 
  .dock{border:2px solid #1d5f52;border-radius:14px;background:#0b1a17;padding:11px;
@@ -1993,6 +3691,159 @@ CALL_PAGE = """<!doctype html>
 PHONE_LABELS = {"chat": "FLEET", "cockpit": "COCKPIT", "graph": "GRAPH",
                 "pm": "BOARD", "messages": "MESSAGES", "terminal": "TERMINAL"}
 
+
+ONBOARD_PHONE_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark"><title>__OS__ · Wideband</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="__OS__">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="manifest" href="/phone.webmanifest">
+<style>__VT__
+*{box-sizing:border-box}html,body{margin:0;min-height:100%}
+body{background:#0b1016;color:#e0edf4;font:15px/1.5 ui-monospace,"SF Mono",Menlo,monospace;
+  padding:max(25px,env(safe-area-inset-top)) 20px max(25px,env(safe-area-inset-bottom))}
+main{max-width:620px;margin:0 auto}.eyebrow{color:#65ddf2;font-size:11px;letter-spacing:.24em}
+h1{font-size:clamp(34px,11vw,58px);font-weight:500;letter-spacing:-.06em;
+  line-height:1.04;margin:15px 0 8px}.intro{color:#8ca7b3;margin:0 0 30px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{min-height:146px;padding:17px;border:1px solid #29404a;border-radius:13px;
+  color:inherit;text-decoration:none;background:#111b23;display:flex;flex-direction:column;
+  justify-content:space-between}
+.card:active,.card:focus-visible{border-color:#65ddf2;outline:none;background:#172832}
+.card b{font-size:16px;font-weight:500}.card small{color:#8ca7b3;font-size:11px;line-height:1.4}
+.card .num{color:#65ddf2;font-size:11px;letter-spacing:.18em}
+.card.wide{grid-column:1/-1;min-height:95px;flex-direction:row;align-items:center;gap:12px}
+.card.wide div{display:flex;flex-direction:column;gap:5px}
+.card.off{opacity:.56;cursor:default}.card.off:active{border-color:#29404a;background:#111b23}
+.beta{color:#65ddf2;font-size:10px;letter-spacing:.14em;border:1px solid #327284;
+  border-radius:4px;padding:2px 5px}
+.foot{margin-top:22px;color:#6f8995;font-size:11px}
+.foot a{color:#8ca7b3}
+@media(max-width:370px){.grid{gap:9px}.card{padding:13px;min-height:133px}}
+@media(prefers-reduced-motion:no-preference){.card{transition:background .18s,border-color .18s}}
+</style></head><body><main>
+<div class="eyebrow">WIDEBAND / YOUR OS</div>
+<h1>__OS__</h1>
+<p class="intro">Your agent and first workspace, from your phone.</p>
+<div class="grid">
+  <a class="card" href="/agent"><span class="num">01 / AGENT</span>
+    <b>__AGENT__</b><small>Message your head agent</small></a>
+  __PROJECT_KEY__
+  <a class="card" href="/graph"><span class="num">03 / GRAPH</span>
+    <b>Knowledge graph</b><small>See how your OS is connected</small></a>
+  <a class="card" href="/watch"><span class="num">04 / TERMINAL</span>
+    <b>Live terminal</b><small>Watch only · no keyboard access</small></a>
+  <a class="card wide" href="/notes"><div><span class="num">05 / IDEAS</span>
+    <b>Notes <span class="beta">BETA</span></b></div>
+    <small>Capture and organize ideas</small></a>
+</div>
+<div class="foot">Wideband __CONTROL__</div>
+</main></body></html>"""
+
+ONBOARD_DETAIL_STYLE = """<style>
+*{box-sizing:border-box}html,body{margin:0;min-height:100%}
+body{background:#0b1016;color:#e0edf4;font:15px/1.6 ui-monospace,"SF Mono",Menlo,monospace;
+  padding:max(26px,env(safe-area-inset-top)) 20px max(26px,env(safe-area-inset-bottom))}
+main{max-width:680px;margin:0 auto}.back{color:#8ca7b3;text-decoration:none;font-size:12px}
+.eyebrow{color:#65ddf2;font-size:11px;letter-spacing:.2em;margin-top:32px}
+h1{font-size:clamp(30px,9vw,48px);font-weight:500;line-height:1.12;margin:11px 0 18px}
+p{color:#a1b7c2;margin:0 0 16px}.panel{border:1px solid #29404a;background:#111b23;
+  border-radius:12px;padding:19px;margin:18px 0}
+.panel b{color:#e0edf4;font-weight:500}.panel small{color:#8ca7b3}
+.node-list{list-style:none;padding:0;margin:0;display:grid;gap:10px}
+.node-list li{border:1px solid #29404a;border-radius:9px;padding:11px 14px;background:#111b23}
+.node-list li span{display:block;color:#65ddf2;font-size:10px;letter-spacing:.16em}
+.arrow{color:#65ddf2;text-align:center;font-size:19px;line-height:1}
+.button{display:inline-block;color:#0b1016;background:#65ddf2;border-radius:8px;
+  padding:10px 14px;text-decoration:none;margin:8px 0}
+pre{background:#05090d;border:1px solid #29404a;border-radius:9px;padding:14px;
+  min-height:50vh;overflow:auto;white-space:pre;color:#d5e5ec;font:12px/1.45
+  ui-monospace,"SF Mono",Menlo,monospace}
+.state{color:#8ca7b3;font-size:11px;letter-spacing:.1em}
+</style>"""
+
+ONBOARD_AGENT_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>__AGENT__ · __OS__</title>__STYLE__</head><body><main>
+<a class="back" href="/phone">‹ Home</a>
+<div class="eyebrow">__OS__ / HEAD AGENT</div><h1>__AGENT__</h1>
+<div class="panel"><b>Talk in Messages</b><p>Open the conversation with the separate
+Apple Account signed into Messages on this Mac, then send your first text.</p>
+<small>Your Apple Account password and verification code stay in Apple's sign-in.</small></div>
+<a class="button" href="/watch">Watch __AGENT__ work →</a>
+</main></body></html>"""
+
+ONBOARD_GRAPH_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Knowledge graph · __OS__</title>__STYLE__</head><body><main>
+<a class="back" href="/phone">‹ Home</a>
+<div class="eyebrow">__OS__ / KNOWLEDGE GRAPH</div><h1>Your starter map</h1>
+<p>This map shows the setup choices and message path. Add project knowledge as
+your agent works.</p>
+<ol class="node-list">
+ <li><span>OS</span>__OS__</li><li class="arrow" aria-hidden="true">↓</li>
+ <li><span>HEAD AGENT</span>__AGENT__</li><li class="arrow" aria-hidden="true">↓</li>
+ <li><span>MESSAGING ROUTE</span>Messages listener → binding → session → guarded reply worker</li>
+ <li class="arrow" aria-hidden="true">↓</li>
+ <li><span>FIRST JOB</span>__GOAL__</li>
+</ol>
+__FULL_GRAPH__
+</main></body></html>"""
+
+ONBOARD_WATCH_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Live terminal · __OS__</title>__STYLE__</head><body><main>
+<a class="back" href="/phone">‹ Home</a>
+<div class="eyebrow">__OS__ / LIVE TERMINAL</div><h1>Watch __AGENT__</h1>
+<p>This view shows the head agent's terminal. It is read only.</p>
+<div class="state" id="state" role="status">Connecting…</div>
+<pre id="pane" aria-label="Head agent terminal"></pre>
+</main><script>
+async function refresh(){
+ try{
+  const r=await fetch('/api/watch',{cache:'no-store'});
+  const d=await r.json();
+  document.getElementById('state').textContent=d.running?'LIVE · READ ONLY':'SESSION NOT RUNNING';
+  document.getElementById('pane').textContent=d.running?d.text:
+    'The head agent session is not running yet. Return after setup finishes.';
+ }catch(e){document.getElementById('state').textContent='CONNECTION LOST';}
+}
+refresh();setInterval(refresh,3000);
+</script></body></html>"""
+
+
+def head_session_snapshot(session):
+    """Bounded tmux capture with no command, keystroke, or control channel."""
+    try:
+        names = subprocess.run(
+            ["tmux", "list-sessions", "-F", "#{session_name}"],
+            capture_output=True, text=True, timeout=3, check=False)
+        if names.returncode or session not in names.stdout.splitlines():
+            return None
+        captured = subprocess.run(
+            ["tmux", "capture-pane", "-p", "-t", session + ":", "-S", "-120"],
+            capture_output=True, text=True, timeout=3, check=False)
+        if captured.returncode:
+            return None
+        return captured.stdout[-32768:]
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+# The moving mark. 235KB of h264, not the 6MB master in the cockpit's public/ —
+# this screen is opened on a phone, often on cell data, and a brand button is
+# not worth a second of somebody's connection. No webm twin: h264 plays in every
+# browser that can reach this page, and the vp9 encode came out twice the size.
+#
+# `muted` and `playsinline` are both load-bearing on iOS, not decoration —
+# without either one the video refuses to autoplay and the mark is a still
+# frame. `disablepictureinpicture` keeps a long-press off a menu nobody wants
+# for a logo.
+MARK_VIDEO = ('<video src="/wb-logo-256.mp4" autoplay muted loop playsinline '
+              'preload="auto" disablepictureinpicture aria-hidden="true"></video>')
+
 PHONE_PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -2003,7 +3854,7 @@ PHONE_PAGE = """<!doctype html>
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="manifest" href="/phone.webmanifest">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%2305070a'/><path d='M6 12h6l4 10 4-16 4 12h2' stroke='%234fe3c1' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
-<style>
+<style>__VT__
  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
  html,body{height:100%}
  body{background:#05070a;color:#d6e4ec;
@@ -2015,8 +3866,27 @@ PHONE_PAGE = """<!doctype html>
  .time{font-size:clamp(56px,19vw,104px);line-height:1;letter-spacing:.02em;
    color:#4fe3c1;font-weight:400;font-variant-numeric:tabular-nums}
  .date{margin-top:10px;font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:#4a5b68}
+ /* The mark, between the clock and the keys. It is the only moving thing on
+    the screen, so it does not need size to be found — at 76px it reads as a
+    mark and not as a seventh key.
+
+    `mix-blend-mode:screen` is doing the work that an alpha channel would.
+    The loop is bright cyan lines on pure black; screened against the page,
+    black goes to nothing and the mark floats with no box, no border and no
+    plate under it. The alternative was a transparent encode, which on this
+    screen means either 10x the bytes (yuva444p10le) or a mask that clips the
+    hexagon's own corners. */
+ .mark{display:block;width:76px;height:76px;margin:14px auto 0;padding:0;
+   border:0;background:none;line-height:0;transition:transform .18s ease}
+ .mark video{width:100%;height:100%;display:block;mix-blend-mode:screen;
+   pointer-events:none}
+ a.mark:active{transform:scale(.94)}
+ a.mark:active video{filter:brightness(1.45)}
+ /* Registered but down: the mark stays, because the brand is not a status
+    lamp, but it stops pretending to be a link. */
+ span.mark video{opacity:.34}
  .grid{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:12px;
-   align-content:center;padding:18px 0}
+   align-content:center;padding:14px 0 18px}
  a.key,span.key{display:flex;flex-direction:column;align-items:center;justify-content:center;
    gap:8px;min-height:104px;border:2px solid #18222b;border-radius:14px;
    background:#0a0e13;color:#d6e4ec;text-decoration:none;
@@ -2026,6 +3896,34 @@ PHONE_PAGE = """<!doctype html>
  .key svg{width:30px;height:30px;stroke:#4fe3c1;stroke-width:1.6;fill:none;
    stroke-linecap:round;stroke-linejoin:round}
  span.key svg{stroke:#4a5b68}
+ /* Notes is served by this process, not discovered as a registered service, so
+    it is not one of the six tiles and should not pretend to be. It spans the
+    row beneath them — full width reads as a place rather than a seventh app,
+    and it keeps the 2x3 grid the thumb has already learned. */
+ a.key.wide{grid-column:1/-1;flex-direction:row;min-height:62px;gap:12px}
+ a.key.wide svg{width:22px;height:22px}
+ a.key.wide em{font-style:normal;font-size:9.5px;letter-spacing:.14em;
+   color:#2f414d;text-transform:uppercase}
+ /* Notes and Cashflow share a row. They are the two surfaces this server
+    hosts itself rather than links out to, so they belong together, and a
+    pair costs 12px of height where a second full-width bar would have cost
+    74 — on a screen whose whole job is to fit without scrolling. Shorter
+    than a service tile because neither needs a 30px glyph to be recognised
+    at this point in the list. */
+ a.key.half{min-height:74px;gap:5px;font-size:13px}
+ a.key.half svg{width:22px;height:22px}
+ a.key.half em{font-style:normal;font-size:8.5px;letter-spacing:.11em;
+   color:#2f414d;text-transform:uppercase;line-height:1.3;
+   padding:0 4px;text-align:center}
+ /* The live map. Same wide key as Notes, with the accent border the CALL key
+    uses, because like CALL it is the one that leaves this machine. The dot is
+    the only thing on the grid that moves — it says the thing on the other end
+    is live without needing a word for it. */
+ a.key.net{border-color:#1d5f52;background:#0a1512;color:#4fe3c1}
+ a.key.net:active{border-color:#4fe3c1;background:#10241f}
+ a.key.net i{width:6px;height:6px;border-radius:50%;background:#4fe3c1;
+   flex:none;animation:netpulse 2.6s ease-in-out infinite}
+ @keyframes netpulse{0%,100%{opacity:.3}50%{opacity:1}}
  .st{font-size:10px;letter-spacing:.16em;color:#4a5b68}
  /* The call key gets the width and the only colour on the screen, because it
     is the one button that does something rather than going somewhere. */
@@ -2057,8 +3955,57 @@ PHONE_PAGE = """<!doctype html>
     connecting is the one that shows connecting. */
  a.call.opening{border-color:#4fe3c1;background:#10241f}
  a.call.opening span{opacity:.55}
+
+ /* ── short screens ────────────────────────────────────────────────────────
+    This screen's one job is to be a home screen: everything on it reachable
+    without scrolling. It had already stopped being that on a small phone —
+    measured at 375x667, the content ran 105px past the fold BEFORE this
+    change, which put CALL below it — and adding the live-map key took that to
+    179px. A home screen you have to scroll to reach the call button is a
+    worse fault than anything it was carrying.
+
+    So: on a short screen everything gives a little. The proportions are
+    unchanged and nothing is removed — the clock is still the largest thing on
+    the screen and the keys are still comfortably past the 44px minimum.
+
+    Two tiers rather than one, because the shortfall is not the same
+    everywhere. A 360x800 Android — the common one, and the device this was
+    reported from — is a few dozen px short and only needs a trim. A 375x667
+    is far further short and needs the lot. Compacting both by the same amount
+    would shrink a phone that had almost enough room for no reason.
+
+    The first breakpoint tracks the content's own full-size height and has to
+    move when the screen gains a row: it was 844 for the six tiles plus Notes
+    plus the fleet map, and 864 once Cashflow joined Notes on a shared row.
+    Set it below the real requirement and a phone lands in the gap and
+    scrolls — which is exactly what 393x852 did when this was left at 844. */
+ @media(max-height:864px){
+   .clock{padding:14px 0 3px}
+   .date{margin-top:8px}
+   .mark{width:64px;height:64px;margin:10px auto 0}
+   .grid{gap:11px;padding:12px 0 14px}
+   a.key,span.key{min-height:92px}
+   a.key.wide{min-height:56px}
+   a.call{min-height:60px}
+ }
+ @media(max-height:740px){
+   body{padding:max(12px,env(safe-area-inset-top)) 14px
+         max(14px,env(safe-area-inset-bottom))}
+   .clock{padding:8px 0 2px}
+   .time{font-size:clamp(44px,15vw,76px)}
+   .date{margin-top:6px;font-size:11px;letter-spacing:.18em}
+   .mark{width:54px;height:54px;margin:8px auto 0}
+   .grid{gap:9px;padding:10px 0 12px}
+   a.key,span.key{min-height:74px;gap:6px;font-size:13.5px}
+   .key svg{width:24px;height:24px}
+   a.key.wide{min-height:50px}
+   a.call{min-height:56px;margin-bottom:9px}
+   a.call .face{width:30px;height:30px}
+   .foot{font-size:10px}
+ }
 </style></head><body>
  <div class="clock"><div class="time" id="t">--:--</div><div class="date" id="d">&nbsp;</div></div>
+ __MARK__
  <div class="grid">__KEYS__</div>
  <a class="call" href="__CALL_HREF__"><img src="/trace-192.png" alt="" class="face"><span>__CALL_LABEL__</span><em>__CALL_SUB__</em></a>
  <div class="foot"><a href="/board">all __N__ services &rsaquo;</a><span class="sep">·</span>__HOME_TOGGLE__</div>
@@ -2075,8 +4022,10 @@ PHONE_PAGE = """<!doctype html>
 
 
  // ── the tap ──────────────────────────────────────────────────────────────
- // Sound only. The screen this leads to draws the connecting state, so drawing
- // one here as well meant the operator sat through two of them for one action.
+ // Sound only. It used to be sound only because the page this led to drew the
+ // connecting state and two overlays for one action is one too many; it is
+ // sound only now because the key hands off to another app entirely, and a
+ // connecting screen for a handoff the OS animates itself would be a third.
  //
  // The hold is 160ms: long enough for the key to light and the first blip to
  // land, short enough that it reads as the button responding rather than as a
@@ -2113,19 +4062,50 @@ PHONE_PAGE = """<!doctype html>
      }catch(e){}
    }
 
+   // `sms:` is the documented scheme and takes a phone number; every phone
+   // honours it. Addressed to an Apple ID it is normal iOS behaviour but not
+   // written down anywhere Apple will commit to, so there is a second way
+   // through: if we are still here and still focused a beat later, nothing
+   // launched, and `imessage://` gets a turn. The guard is both
+   // visibilityState AND hasFocus — a scheme that fails on iOS often leaves
+   // the page visible behind a "Cannot Open Page" sheet, which visibility
+   // alone reads as success.
+   function leave(){
+     location.href = href;
+     if(href.indexOf('sms:') !== 0) return;
+     var alt = 'imessage://' + href.slice(4);
+     setTimeout(function(){
+       if(document.visibilityState === 'visible' && document.hasFocus()){
+         location.href = alt;
+       }
+     }, 1200);
+   }
+
    call.addEventListener('click', function(e){
      e.preventDefault();
      if(armed) return;              // a second tap is not a second call
      armed = true;
      call.classList.add('opening');
      seize();
-     setTimeout(function(){ location.href = href; }, 160);
+     setTimeout(leave, 160);
    });
 
-   // Back from the cockpit restores this page from the back-forward cache with
-   // the key still lit, on a screen the operator has finished with.
+   function disarm(){ armed = false; call.classList.remove('opening'); }
+
+   // Back from a page restores this one from the back-forward cache with the
+   // key still lit, on a screen the operator has finished with.
    window.addEventListener('pageshow', function(ev){
-     if(ev.persisted){ armed = false; call.classList.remove('opening'); }
+     if(ev.persisted) disarm();
+   });
+
+   // And this is the one that matters now the key leaves the browser instead
+   // of navigating. Messages opens OVER this page; the document never
+   // unloads, so coming back fires no pageshow and `armed` would stay true
+   // for the life of the tab — one tap, then a dead button forever, which is
+   // indistinguishable from the thing this key was changed to fix. Returning
+   // to the screen is the signal that the trip is over.
+   document.addEventListener('visibilitychange', function(){
+     if(document.visibilityState === 'visible') disarm();
    });
  })();
 </script>
@@ -2193,6 +4173,51 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
+    def _discard_body(self):
+        """Read and throw away the request body. Call before ANY early refusal.
+
+        A route that answers a POST without consuming its body leaves those
+        bytes sitting in the socket. On a direct connection that is invisible,
+        because the client is about to close it anyway — which is why this went
+        unnoticed. Through `tailscale serve` it is not invisible at all: the
+        proxy keeps the backend connection alive and sends the next request
+        down the same one, where it lands on the tail of the last request's
+        JSON. The server parses `"history": []}` as a request line and answers
+        400, and the failure is attributed to whichever innocent page happened
+        to be next.
+
+        Observed exactly that way on 2026-09-25: POST /api/grace (which refuses
+        with 410 before reading, deliberately) followed by GET /notes returned
+        400 every time over the tailnet and never over loopback.
+
+        When the body is too large to be worth draining, or its length is not
+        knowable, the connection is dropped instead. Closing is always correct
+        here; reusing a connection whose state you cannot account for is not.
+        """
+        if self.headers.get("Transfer-Encoding"):
+            self.close_connection = True      # chunked: no safe length to read
+            return
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self.close_connection = True
+            return
+        if n <= 0:
+            return
+        if n > 1024 * 1024:
+            self.close_connection = True      # not worth reading to discard
+            return
+        try:
+            self.rfile.read(n)
+        except Exception:
+            self.close_connection = True
+
+    def _control_refusal(self):
+        if len(CONTROL_TOKEN) < 16:
+            return self._send(404, "controls are not enabled\n", "text/plain")
+        return self._send(401, "operator unlock required\n", "text/plain", {
+            "WWW-Authenticate": 'Basic realm="Wideband controls"'})
+
     def do_HEAD(self):
         self.do_GET()
 
@@ -2212,6 +4237,14 @@ class Handler(BaseHTTPRequestHandler):
             body = DENIED_PAGE % {"ip": esc_html(ip), "host": esc_html(HOST),
                                   "machine": esc_html(MACHINE), "port": PORT}
             return self._send(403, body, "text/html; charset=utf-8")
+
+        if onboarding_config() and (
+                path in ("/board", "/call", "/call-trace", "/cashflow",
+                         "/api", "/api/status", "/api/tunnel", "/api/fleet",
+                         "/api/brief", "/api/trace-replies")
+                or (path.startswith("/app/") and path != "/app/graph")):
+            if not control_authorized(self.headers.get("Authorization")):
+                return self._control_refusal()
 
         # Fullscreen on iPhone is not the Fullscreen API — Safari on iOS refuses
         # requestFullscreen for anything but <video>. The only real fullscreen
@@ -2250,12 +4283,116 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, json.dumps({"text": text, "agent": who or None}),
                               "application/json")
 
+        if path == "/call-trace":
+            # The user-facing Call Trace surface. Same pipeline as a text
+            # message: what it POSTs to /api/dispatch reaches
+            # router().deliver(), which is the exact call imsg-chatbind makes
+            # when a text arrives. Nothing new can be reached from here.
+            #
+            # The spoken half is retired (GRACE_ENABLED, default off), so the
+            # HANDS FREE button is not rendered at all rather than rendered
+            # disabled. A control that is present and does nothing is the
+            # failure this page already had once, when its label promised full
+            # duplex against a push-to-talk target.
+            page = CALL_TRACE_PAGE.replace("__TRACE_SESSION__", esc_html(TRACE_SESSION))
+            if GRACE_ENABLED:
+                page = (page
+                        .replace("__HANDS_FREE_BTN__",
+                                 '<button type="button" id="hf" class="tog" '
+                                 'title="hands free">HANDS FREE</button>')
+                        .replace("__INTRO__",
+                                 "Type to reach Trace directly — replies also arrive on "
+                                 "your phone. Press HANDS FREE to talk to Grace, who "
+                                 "answers instantly and hands real work to Trace.")
+                        .replace("__HINT__",
+                                 "HANDS FREE talks to Grace &middot; typing goes "
+                                 "straight to Trace"))
+            else:
+                page = (page
+                        .replace("__HANDS_FREE_BTN__", "")
+                        .replace("__INTRO__",
+                                 "Type to reach Trace — replies also arrive on your "
+                                 "phone. Talking to him is retired; send a voice note "
+                                 "in Messages instead.")
+                        .replace("__HINT__", "typing goes straight to Trace"))
+            return self._send(200, page, "text/html; charset=utf-8")
+
+        if path == "/api/trace-replies":
+            # READ-ONLY. This lists what the outbox worker has ALREADY sent, by
+            # stat-ing ~/trace/outbox/sent. It sends nothing and can send
+            # nothing: com.wideband.trace-outbox remains the single outbound
+            # path for iMessage, and this endpoint only mirrors its result back
+            # into the browser so the operator can read a reply where he asked
+            # the question. Deliberately NOT reading the pending outbox dir —
+            # an unsent file is not a reply yet, and showing it would claim a
+            # delivery that has not happened.
+            from urllib.parse import parse_qs
+            q = parse_qs(self.path.split("?", 1)[1]) if "?" in self.path else {}
+            try:
+                since = float((q.get("since") or ["0"])[0])
+            except (TypeError, ValueError):
+                since = 0.0
+            # Both directories, pending FIRST. A reply is written to the outbox
+            # and moves to sent/ when the worker confirms delivery, so scanning
+            # only sent/ costs up to a full worker tick before it can be spoken.
+            # Reading pending lets the voice loop answer as soon as Trace has
+            # actually written the words.
+            #
+            # The same file therefore appears twice over its life, under the
+            # SAME basename. That name is the dedup key here and in the browser,
+            # so a reply is never shown or spoken twice, and `pending` tells the
+            # caller whether delivery to the phone is confirmed yet.
+            seen = {}
+            for d, pending in ((TRACE_OUT, True), (TRACE_SENT, False)):
+                try:
+                    names = os.listdir(d)
+                except OSError:
+                    continue
+                for fn in names:
+                    if not fn.endswith(".txt") or fn.startswith("undelivered-"):
+                        continue
+                    if fn in seen:
+                        continue
+                    fp = os.path.join(d, fn)
+                    if not os.path.isfile(fp):
+                        continue
+                    try:
+                        mt = os.path.getmtime(fp)
+                        if mt <= since:
+                            continue
+                        with open(fp, encoding="utf-8", errors="replace") as fh:
+                            seen[fn] = (mt, fh.read(), pending)
+                    except OSError:
+                        continue
+            out = []
+            for fn, (mt, body, pending) in seen.items():
+                # Same split the worker uses: a line that is exactly three
+                # dashes is a message break, so the browser shows the same
+                # number of bubbles that arrived as separate texts.
+                parts = []
+                cur = []
+                for line in body.splitlines():
+                    if line.strip() == "---":
+                        parts.append("\n".join(cur).strip())
+                        cur = []
+                    else:
+                        cur.append(line)
+                parts.append("\n".join(cur).strip())
+                parts = [p for p in parts if p]
+                if parts:
+                    out.append({"at": mt, "name": fn, "parts": parts,
+                                "pending": pending})
+            out.sort(key=lambda r: r["at"])
+            return self._send(200, json.dumps({"replies": out[-12:]}),
+                              "application/json")
+
         if path == "/call":
             return self._send(200, CALL_PAGE, "text/html; charset=utf-8")
 
         if path == "/phone.webmanifest":
+            installed_name = (onboarding_config() or {}).get("os_name") or MACHINE
             return self._send(200, json.dumps({
-                "name": MACHINE, "short_name": MACHINE,
+                "name": installed_name, "short_name": installed_name,
                 "start_url": "/phone", "scope": "/",
                 "display": "fullscreen",
                 "display_override": ["fullscreen", "standalone", "minimal-ui"],
@@ -2287,9 +4424,106 @@ class Handler(BaseHTTPRequestHandler):
                               {"Location": dest, "Set-Cookie": cookie})
 
         if path in ("/phone", "/"):
+            if path == "/" and onboarding_config():
+                return self._phone()
             if path == "/" and home_pref(self.headers.get("Cookie")) != "simple":
                 return self._board()
             return self._phone()
+
+        # The installer-backed customer surfaces never expose chat_server's
+        # writable tmux endpoints. /watch captures one configured head session
+        # and serves text; there is no control request in this process.
+        if onboarding_config() and path in ("/agent", "/graph", "/watch"):
+            return self._onboard_detail(path)
+        if onboarding_config() and path == "/api/watch":
+            session = onboarding_config()["head_session"]
+            snapshot = head_session_snapshot(session)
+            return self._send(200, json.dumps({
+                "running": snapshot is not None,
+                "text": snapshot or "",
+            }), "application/json")
+
+        # Notes. Same origin, same `allowed()` gate as everything else on this
+        # port — there is no second stack here and nothing new is listening.
+        if path == "/notes":
+            page = (NOTES_PAGE
+                    .replace("__VT__", VIEW_TRANSITION_CSS)
+                    .replace("__MACHINE__", esc_html(MACHINE))
+                    .replace("__STATUSES__", json.dumps(list(NOTE_STATUSES))))
+            return self._send(200, page, "text/html; charset=utf-8")
+
+        if path == "/api/notes":
+            return self._send(200, json.dumps({"notes": notes_all()}),
+                              "application/json")
+
+        # A registered service, framed so the shell never leaves this origin.
+        # The id is looked up in SHELLED_APPS before anything else happens, so
+        # the only URLs reachable here are ones the registry resolved for ids
+        # this file names — the request cannot supply one.
+        if path.startswith("/app/"):
+            app_id = path[len("/app/"):]
+            label = SHELLED_APPS.get(app_id)
+            if label:
+                # Registry-resolved, like every other link on these surfaces,
+                # so it cannot rot when a port or the tailnet name moves — and
+                # liveness comes free with the lookup.
+                svc = {s["id"]: s
+                       for s in cached_scan().get("services", [])}.get(app_id)
+                if not svc or not svc.get("linkable"):
+                    return self._send(200, APP_SHELL_DOWN.replace(
+                        "__LABEL__", esc_html(label)), "text/html; charset=utf-8")
+                url = svc["url"]
+            elif app_id in SHELLED_STATIC:
+                label, url = SHELLED_STATIC[app_id]
+            else:
+                return self._send(404, "not framed here\n", "text/plain")
+            page = (APP_SHELL_PAGE
+                    .replace("__VT__", VIEW_TRANSITION_CSS)
+                    # The host, not the app's own name. Every framed service
+                    # draws its own header immediately below this bar, so
+                    # naming it here reads as a stutter — "MESSAGES · LIVE"
+                    # sitting on top of "MESSAGES". The machine is the thing
+                    # the bar can say that the framed app cannot, and it
+                    # matches how the board header reads.
+                    .replace("__BAR__", fleet_bar("%s · live" % MACHINE))
+                    .replace("__URL__", esc_html(url))
+                    .replace("__ALLOW__", esc_html(
+                        SHELL_ALLOW.get(app_id, SHELL_ALLOW_DEFAULT)))
+                    .replace("__LABEL__", esc_html(label))
+                    .replace("__MACHINE__", esc_html(MACHINE)))
+            return self._send(200, page, "text/html; charset=utf-8")
+
+        # The accountant's cash view. Same origin, same tailnet gate as the
+        # rest of this port — which matters more here than anywhere else on
+        # the board, because this is the one surface that is somebody's actual
+        # money. It is never reachable from outside the tailnet for the same
+        # reason nothing else here is: the check above this one.
+        if path == "/cashflow":
+            try:
+                with open(CASHFLOW_PATH, "r", encoding="utf-8") as fh:
+                    page = fh.read()
+            except FileNotFoundError:
+                return self._send(200, CASHFLOW_MISSING.replace(
+                    "__PATH__", esc_html(CASHFLOW_PATH)), "text/html; charset=utf-8")
+            except Exception as e:
+                sys.stderr.write("fleetdeck: cashflow unreadable (%s)\n" % e)
+                return self._send(200, CASHFLOW_MISSING.replace(
+                    "__PATH__", esc_html("%s — %s" % (CASHFLOW_PATH, e))),
+                    "text/html; charset=utf-8")
+            # Inserted directly after the <body> tag so the bar is the first
+            # thing in flow and the page starts below it. Falls back to
+            # prepending if there is no <body> — a fragment still renders, and
+            # a cash view with no way back is the one outcome to avoid.
+            # The agent's file is taken as found; nothing in it is rewritten.
+            # The transition rule goes in here too, because a cross-document
+            # transition needs BOTH documents to opt in — without this, every
+            # other surface would glide and this one would hard-cut, which
+            # reads as this page being the broken one.
+            bar = ("<style>%s</style>" % VIEW_TRANSITION_CSS
+                   + fleet_bar("cashflow · accountant"))
+            m = re.search(r"<body\b[^>]*>", page, re.I)
+            page = (page[:m.end()] + bar + page[m.end():]) if m else bar + page
+            return self._send(200, page, "text/html; charset=utf-8")
 
         if path == "/board":
             return self._board()
@@ -2335,6 +4569,18 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, fh.read(), "image/png")
             return self._send(404, "no icon\n", "text/plain")
 
+        # The moving mark on the front screen. Read whole and handed over in one
+        # piece: 235KB is under the size where range requests start to matter,
+        # and this server does not speak them — a partial-content request would
+        # get the whole file with a 200, which every browser accepts for a file
+        # this small but which would stall a large one mid-scrub.
+        if path == "/wb-logo-256.mp4":
+            vid = os.path.join(HERE, "assets", "wb-logo-256.mp4")
+            if os.path.exists(vid):
+                with open(vid, "rb") as fh:
+                    return self._send(200, fh.read(), "video/mp4")
+            return self._send(404, "no mark\n", "text/plain")
+
         # One PNG per service, written by make-icons.py off the same glyph
         # library the board draws. Apps that can serve their own static files
         # should be given a copy (see `icon_dest` in services.json) so their
@@ -2364,6 +4610,7 @@ class Handler(BaseHTTPRequestHandler):
         data = json.dumps(cached_scan()).replace("</", "<\\/")
         glyphs = json.dumps(glyph_map(), separators=(",", ":")).replace("</", "<\\/")
         page = (PAGE
+                .replace("__VT__", VIEW_TRANSITION_CSS)
                 .replace("__BRAND__", esc_html(BRAND))
                 .replace("__MACHINE__", esc_html(MACHINE))
                 .replace("__SIMPLE_CLASS__", "on" if simple_is_home else "")
@@ -2372,11 +4619,15 @@ class Handler(BaseHTTPRequestHandler):
                 .replace("__SIMPLE_TITLE__",
                          "Simple screen is this device's home — tap for the board"
                          if simple_is_home else "Switch to the simple screen")
+                .replace("__NETMAP__", esc_html(NETMAP_URL))
+                .replace("__CASHFLOW_LABEL__", esc_html(CASHFLOW_LABEL))
                 .replace("__GLYPHS__", glyphs)
                 .replace("window.__DATA__", f"JSON.parse({json.dumps(data)})"))
         return self._send(200, page, "text/html; charset=utf-8")
 
     def _phone(self):
+        if onboarding_config():
+            return self._onboard_phone()
         simple_is_home = home_pref(self.headers.get("Cookie")) == "simple"
         scan_now = cached_scan()
         by_id = {s["id"]: s for s in scan_now.get("services", [])}
@@ -2396,25 +4647,143 @@ class Handler(BaseHTTPRequestHandler):
             icon = glyphs.get(s.get("icon"), glyphs.get("server", FALLBACK_GLYPH))
             svg = '<svg viewBox="0 0 24 24" aria-hidden="true">%s</svg>' % icon
             if s.get("linkable"):
+                # A framed app is reached through this origin so the installed
+                # app keeps its fullscreen; everything else still links
+                # straight at the service, which is what it has always done.
+                href = "/app/%s" % app_id if app_id in SHELLED_APPS else s["url"]
                 keys.append('<a class="key" href="%s">%s<span>%s</span></a>'
-                            % (esc_html(s["url"]), svg, esc_html(label)))
+                            % (esc_html(href), svg, esc_html(label)))
             else:
                 why = "down" if not s.get("up") else "no browser UI"
                 keys.append('<span class="key">%s<span>%s</span>'
                             '<span class="st">%s</span></span>'
                             % (svg, esc_html(label), why))
+        # Notes closes the grid. It is not resolved from the registry like the
+        # six above it because it is not a service — it is a route on this
+        # process, so if this page rendered, it is up. There is no down branch
+        # to write and no liveness to check.
+        keys.append('<a class="key half" href="/notes">%s<span>Notes β</span>'
+                    '<em>%s</em></a>'
+                    % ('<svg viewBox="0 0 24 24" aria-hidden="true">%s</svg>'
+                       % glyphs.get("script", FALLBACK_GLYPH),
+                       esc_html(notes_summary())))
+
+        # Cashflow sits beside Notes for the same reason Notes needs no
+        # liveness check: both are routes on this process. The sub-label names
+        # the session that owns the numbers rather than quoting one of them —
+        # a figure here would be a second place for the balance to be wrong,
+        # and this server does not read the ledger, it serves the page.
+        keys.append('<a class="key half" href="/cashflow">%s<span>%s</span>'
+                    '<em>accountant</em></a>'
+                    % ('<svg viewBox="0 0 24 24" aria-hidden="true">%s</svg>'
+                       % glyphs.get("pulse", FALLBACK_GLYPH),
+                       esc_html(CASHFLOW_LABEL)))
+
+        # The live map closes the grid, below Notes. It is on this screen as
+        # well as in the board header because the board header is not reachable
+        # from a phone without going through the board first: on a device whose
+        # home is the simple screen, a control that exists only in the desk
+        # header may as well not exist. New tab for the same reason as there.
+        # Through the shell and in the same tab, where the board header still
+        # links straight at it in a new one. Not an inconsistency: the desk has
+        # an address bar and a board worth keeping open behind the map, and the
+        # phone has neither. This was the last key that broke the installed app
+        # out of fullscreen.
+        keys.append('<a class="key wide net" href="/app/netmap">'
+                    '<i></i><span>%s</span></a>' % esc_html(NETMAP_LABEL))
+
+        # The mark under the clock goes to the platform itself — the one link on
+        # this screen that is the product rather than a tool for running it.
+        # Resolved from the registry like every other link here, so it cannot
+        # rot when the port or the tailnet name moves. If the platform is down
+        # the mark stays and stops being a link, rather than becoming a button
+        # that goes nowhere: a logo is not a status lamp.
+        app = by_id.get("app")
+        if app and app.get("linkable"):
+            mark = ('<a class="mark" href="%s" aria-label="%s">%s</a>'
+                    % (esc_html(app["url"]),
+                       esc_html(app.get("name") or "Wideband"), MARK_VIDEO))
+        else:
+            mark = '<span class="mark">%s</span>' % MARK_VIDEO
+
         href, label, sub = call_destination(by_id)
         toggle = ('<a class="on" href="/home?ui=board">unset as home</a>'
                   if simple_is_home
                   else '<a href="/home?ui=simple">set as home</a>')
         page = (PHONE_PAGE
+                .replace("__VT__", VIEW_TRANSITION_CSS)
                 .replace("__MACHINE__", esc_html(MACHINE))
                 .replace("__KEYS__", "".join(keys))
+                .replace("__MARK__", mark)
                 .replace("__CALL_HREF__", esc_html(href))
                 .replace("__CALL_LABEL__", esc_html(label))
                 .replace("__CALL_SUB__", esc_html(sub))
                 .replace("__HOME_TOGGLE__", toggle)
                 .replace("__N__", str(len(scan_now.get("services", [])))))
+        return self._send(200, page, "text/html; charset=utf-8")
+
+    def _onboard_phone(self):
+        info = onboarding_config()
+        goal = {"research": "Research", "website": "Build a website",
+                "proposal": "Create a proposal"}[info["first_goal"]]
+        project_state = first_goal_status(info)
+        service = {s["id"]: s for s in cached_scan().get("services", [])}.get(
+            "first-project")
+        # A down service wins over a stale URL elsewhere. An up, loopback-only
+        # service can still have a verified phone_url in the goal status when
+        # Tailscale Serve succeeded but the scanner has not resolved that map.
+        if service:
+            if (project_state["identity_match"]
+                    and project_state["status"] == "ready"
+                    and service.get("up", service.get("linkable", False))):
+                project_url = (_phone_url(service.get("url"))
+                               if service.get("linkable") else "")
+                project_url = project_url or project_state["phone_url"]
+            else:
+                project_url = ""
+        else:
+            project_url = (project_state["phone_url"] or
+                           info["first_project_url"])
+        if project_url:
+            project = ('<a class="card" href="%s"><span class="num">'
+                       '02 / FIRST PROJECT</span><b>%s</b>'
+                       '<small>Open your first project</small></a>'
+                       % (esc_html(project_url), esc_html(goal)))
+        else:
+            pending = ("Running on this Mac · phone link pending"
+                       if project_state["local_only"] else
+                       "Your project link will appear when it is ready")
+            project = ('<div class="card off" aria-disabled="true">'
+                       '<span class="num">02 / FIRST PROJECT</span><b>%s</b>'
+                       '<small>%s</small></div>'
+                       % (esc_html(goal), esc_html(pending)))
+        page = (ONBOARD_PHONE_PAGE
+                .replace("__VT__", VIEW_TRANSITION_CSS)
+                .replace("__OS__", esc_html(info["os_name"]))
+                .replace("__AGENT__", esc_html(info["agent_name"]))
+                .replace("__PROJECT_KEY__", project)
+                .replace("__CONTROL__", (
+                    '· <a href="/board">Operator controls</a>'
+                    if len(CONTROL_TOKEN) >= 16 else "")))
+        return self._send(200, page, "text/html; charset=utf-8")
+
+    def _onboard_detail(self, path):
+        info = onboarding_config()
+        goal = {"research": "Research", "website": "Build a website",
+                "proposal": "Create a proposal"}[info["first_goal"]]
+        if path == "/agent":
+            page = ONBOARD_AGENT_PAGE
+        elif path == "/watch":
+            page = ONBOARD_WATCH_PAGE
+        else:
+            graph = {s["id"]: s for s in cached_scan().get("services", [])}.get("graph")
+            full = ('<p><a class="button" href="/app/graph">Open full graph →</a></p>'
+                    if graph and graph.get("linkable") else "")
+            page = ONBOARD_GRAPH_PAGE.replace("__FULL_GRAPH__", full)
+        page = (page.replace("__STYLE__", ONBOARD_DETAIL_STYLE)
+                .replace("__OS__", esc_html(info["os_name"]))
+                .replace("__AGENT__", esc_html(info["agent_name"]))
+                .replace("__GOAL__", esc_html(goal)))
         return self._send(200, page, "text/html; charset=utf-8")
 
     def do_POST(self):
@@ -2423,7 +4792,14 @@ class Handler(BaseHTTPRequestHandler):
         returned, so a caller cannot name an arbitrary launchd job."""
         path = self.path.split("?")[0].rstrip("/") or "/"
         if not allowed(self.client_address[0]):
+            self._discard_body()
             return self._send(403, "no\n", "text/plain")
+        if onboarding_config() and path not in (
+                "/api/notes", "/api/notes/status", "/api/notes/edit",
+                "/api/notes/delete"):
+            self._discard_body()
+            if not control_authorized(self.headers.get("Authorization")):
+                return self._control_refusal()
 
         # Speech is a POST because the text can be long, and a proxy rather than
         # a link because :8890 is not on the tailnet — the phone would have
@@ -2434,6 +4810,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 n = int(self.headers.get("Content-Length") or 0)
                 if n <= 0 or n > 8 * 1024 * 1024:
+                    self._discard_body()
                     return self._send(400, json.dumps({"error": "empty or oversized clip"}),
                                       "application/json")
                 blob = self.rfile.read(n)
@@ -2445,6 +4822,79 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, json.dumps({"text": None, "why": why or "nothing heard"}),
                                   "application/json")
             return self._send(200, json.dumps({"text": text}), "application/json")
+
+        # ── notes ────────────────────────────────────────────────────────────
+        #
+        # NOT behind AGENT_ACTIONS. That flag guards the routes that can touch
+        # launchd jobs on this machine, and the blast radius there is the Mac
+        # itself. These three write rows to one JSON file in the operator's
+        # home directory, take no path, name no process, and run nothing —
+        # every value that reaches disk has been through notes_normalise(),
+        # which reads five keys and drops the rest. Putting them behind the
+        # same flag would mean either leaving it off and having no notes, or
+        # switching it on and widening the surface that actually matters.
+        #
+        # This is the write path Trace inherits. He posts the organised shape
+        # to /api/notes — title, concept, next, original, status — and gets the
+        # same validation as the phone form, because it is the same function.
+        # Nothing about iMessage routing changes to make that work; when the
+        # time comes it is an HTTP call to a port he can already reach.
+        if path in ("/api/notes", "/api/notes/status", "/api/notes/edit",
+                    "/api/notes/delete"):
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                # A body cap before the parse, not after: the limits in
+                # notes_normalise() protect the file, and this protects the
+                # process from being asked to hold 200MB of JSON first.
+                if n > 256 * 1024:
+                    self._discard_body()
+                    return self._send(413, json.dumps({"error": "note too large"}),
+                                      "application/json")
+                body = json.loads(self.rfile.read(n) or b"{}")
+            except Exception:
+                return self._send(400, json.dumps({"error": "bad body"}),
+                                  "application/json")
+            if not isinstance(body, dict):
+                return self._send(400, json.dumps({"error": "expected an object"}),
+                                  "application/json")
+
+            if path == "/api/notes":
+                # Two shapes, one door. `text` is the phone's single textarea
+                # and gets the labelled-line parse; the explicit fields are the
+                # organised shape. Both end in notes_normalise(), so neither
+                # can write a key the other could not.
+                if isinstance(body.get("text"), str):
+                    payload = note_from_text(body["text"])
+                    payload["status"] = body.get("status")
+                else:
+                    payload = body
+                if not (payload.get("text") or payload.get("original")
+                        or payload.get("title") or payload.get("concept")):
+                    return self._send(400, json.dumps({"error": "empty note"}),
+                                      "application/json")
+                return self._send(200, json.dumps({"note": notes_add(payload)}),
+                                  "application/json")
+
+            if path == "/api/notes/edit":
+                note = notes_update((body.get("id") or "").strip(), body)
+                if not note:
+                    return self._send(404, json.dumps(
+                        {"error": "no such note, or the edit would empty it"}),
+                        "application/json")
+                return self._send(200, json.dumps({"note": note}), "application/json")
+
+            if path == "/api/notes/status":
+                note = notes_set_status((body.get("id") or "").strip(),
+                                        body.get("status"))
+                if not note:
+                    return self._send(404, json.dumps(
+                        {"error": "no such note, or status not one of %s"
+                                  % ", ".join(NOTE_STATUSES)}), "application/json")
+                return self._send(200, json.dumps({"note": note}), "application/json")
+
+            ok = notes_delete((body.get("id") or "").strip())
+            return self._send(200 if ok else 404,
+                              json.dumps({"deleted": ok}), "application/json")
 
         if path == "/api/dispatch":
             try:
@@ -2496,10 +4946,52 @@ class Handler(BaseHTTPRequestHandler):
                               json.dumps({"ok": ok, "detail": detail}),
                               "application/json")
 
+        if path == "/api/grace":
+            # Grace answers by voice. She reads the fleet and hands real work to
+            # Trace; she has no outbound path of her own, so nothing she decides
+            # can reach anyone. Escalation goes through the SAME dispatch() the
+            # text surface uses, which means the same live-session check and the
+            # same refusal to type into a bare shell.
+            #
+            # DEPRECATED 2026-09-16. Refused before the body is read, so a tab
+            # left open on the old page — or a phone that cached it — stops here
+            # instead of loading a 27B model to answer a conversation nobody is
+            # having. 410 rather than 404: the endpoint is retired, not missing.
+            if not GRACE_ENABLED:
+                # Refused without being read, but NOT without being drained —
+                # see _discard_body(). Skipping the drain here is what made an
+                # unrelated GET answer 400 through the tailnet proxy.
+                self._discard_body()
+                return self._send(410, json.dumps(
+                    {"error": "Grace is retired. Send Trace an iMessage voice note."}),
+                    "application/json")
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(n) or b"{}")
+            except Exception:
+                return self._send(400, json.dumps({"error": "bad body"}),
+                                  "application/json")
+            text = (body.get("text") or "").strip()
+            if not text:
+                return self._send(400, json.dumps({"error": "no text"}),
+                                  "application/json")
+            hist = body.get("history") or []
+            if not isinstance(hist, list):
+                hist = []
+            try:
+                out = grace_turn(text, hist)
+            except Exception as exc:
+                return self._send(502, json.dumps(
+                    {"error": f"grace unavailable: {type(exc).__name__}"}),
+                    "application/json")
+            return self._send(200, json.dumps(out), "application/json")
+
         if path == "/api/speak":
             try:
                 n = int(self.headers.get("Content-Length") or 0)
-                text = (json.loads(self.rfile.read(n) or b"{}").get("text") or "").strip()
+                _b = json.loads(self.rfile.read(n) or b"{}")
+                text = (_b.get("text") or "").strip()
+                _voice = (_b.get("voice") or "").strip().lower()[:24]
             except Exception:
                 return self._send(400, json.dumps({"error": "bad body"}),
                                   "application/json")
@@ -2509,7 +5001,11 @@ class Handler(BaseHTTPRequestHandler):
             # Bounded on purpose. TTS runs about three and a half seconds a
             # sentence on this box, so an unbounded body is an unbounded job.
             text = text[:SPEAK_MAX]
-            payload = json.dumps({"model": "wb-voice", "voice": "", "input": text}).encode()
+            # `voice` selects a named reference on the TTS side (grace -> a
+            # different cloned voice). Unknown names fall back to the default
+            # there, so this cannot 500 on a typo.
+            payload = json.dumps({"model": "wb-voice", "voice": _voice,
+                                  "input": text}).encode()
             req = urllib.request.Request(
                 VOICE_URL, data=payload, headers={"Content-Type": "application/json"})
             try:
@@ -2527,6 +5023,7 @@ class Handler(BaseHTTPRequestHandler):
         if path != "/api/agent":
             return self._send(404, "not here\n", "text/plain")
         if not AGENT_ACTIONS:
+            self._discard_body()
             return self._send(403, json.dumps(
                 {"ok": False, "error": "agent actions disabled"}),
                 "application/json")

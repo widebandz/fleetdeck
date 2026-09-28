@@ -344,7 +344,49 @@ produce a tile that lies about what runs it. A repo that ships a Dockerfile
 
 ## Security posture
 
-There is no password anywhere in the request path. What protects these surfaces:
+### Installer-backed customer phone
+
+When `config.json` contains `onboarding` with `os_name` and `agent_name`,
+`/phone` shows Agent, First project, a built-in starter graph, a read-only
+terminal viewer, and Notes β. If `onboarding` is absent, the portal reads
+only `os_name`, `agent_name`, and `first_goal` from the current user's
+`~/.wideband/setup/state.json` metadata. That file must be private to the
+user. An explicit config entry takes precedence. Example:
+
+```json
+"onboarding": {
+  "os_name": "Brainwave",
+  "agent_name": "Trace",
+  "first_goal": "website",
+  "first_project_url": "https://your-project.example",
+  "head_session": "wb-head"
+}
+```
+
+`first_goal` is `research`, `website`, or `proposal`. The project key
+uses a live, reachable `first-project` registry entry first, then a verified
+HTTPS `phone_url` from `~/.wideband/first-goal/status.json` when its status
+is `ready`, then an explicit HTTPS config URL. A loopback `local_url`
+never becomes a phone link. `/graph`
+shows the setup map even before the full corpus graph service is installed.
+`/watch` captures only the configured tmux session; it has no keyboard,
+WebSocket, or command route. `head_session` defaults to `wb-head`.
+
+In this mode, `./install.sh` installs only the portal, skips ttyd, and unloads
+and disables older Fleetdeck chat/adopt/skin jobs. `chat_server.py` also
+refuses to start.
+The customer phone does not link to writable services. Portal operator pages
+and non-Notes POST routes are disabled unless `FLEETDECK_CONTROL_TOKEN` is set
+to at least 16 characters; then HTTP Basic auth unlocks them. This portal gate
+does not govern a separately installed ttyd or other service exposed on its
+own port. A customer installer must leave those off.
+
+Notes uses `~/.fleetdeck-notes.json` by default. Set
+`FLEETDECK_NOTES_PATH=/path/to/private-test-notes.json` for tests or a separate
+instance. The test suite uses a temporary path and never edits live Notes.
+
+In the existing operator mode, there is no password in the request path. What
+protects those surfaces:
 
 - **portal** binds `127.0.0.1` and is fronted by `tailscale serve` with a real
   Let's Encrypt cert. Requests arrive from loopback; the tailnet boundary is
