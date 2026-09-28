@@ -17,3 +17,10 @@ __pycache__/
 # on first run, and never overwrites them afterwards.
 config.json
 services.json
+
+# Hand-made snapshots taken before a risky edit (portal_server.py.bak2-172107
+# and friends). They are ~1MB of near-identical copies of files git already has
+# every version of, and they appear as untracked noise in every status.
+*.bak
+*.bak-*
+*.bak[0-9]-*
