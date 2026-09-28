@@ -77,6 +77,12 @@ SKINS = os.path.join(HERE, "skins")
 BIND = os.environ.get("FLEETDECK_SKIN_BIND", "127.0.0.1")
 THEME = "#05070a"
 MARK = "fleetdeck-skin"  # the idempotency marker
+# How long a streaming upstream may go quiet between chunks. Distinct from the
+# 10s CONNECT deadline below, which stays on the socket as a read deadline too
+# and so cut any response with a long gap: a local LLM front streaming SSE can
+# think for tens of seconds before its first token. Finite, so a wedged
+# upstream cannot pin a thread forever.
+READ_TIMEOUT = float(os.environ.get("FLEETDECK_SKIN_READ_TIMEOUT", "900"))
 
 # Hop-by-hop headers: meaningless to forward, and Content-Length/Transfer-
 # Encoding are recomputed because the body length changes when we inject.
@@ -237,6 +243,10 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             return self._send(502, f"{sk['id']} is not answering on "
                                    f"{sk['origin']}: {exc}\n", "text/plain")
+        # create_connection's timeout is a CONNECT deadline, but it stays on the
+        # socket afterwards as a per-read deadline. Relax it now that we are
+        # through: a slow first token is not a dead upstream.
+        up.settimeout(READ_TIMEOUT)
 
         upgrade = "upgrade" in self.headers.get("Connection", "").lower()
         head = io.StringIO()
