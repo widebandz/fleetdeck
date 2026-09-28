@@ -2234,10 +2234,33 @@ class Handler(BaseHTTPRequestHandler):
                     page = fh.read()
             except OSError:
                 return self._send(503, "fleet map unavailable\n", "text/plain")
+            # `frame-ancestors` names ONE origin rather than 'none', as of
+            # 2026-09-27, and nothing else in this header moved.
+            #
+            # The Fleetdeck portal on :8790 frames its own surfaces so that an
+            # installed phone app never leaves the standalone shell — a
+            # different port is a different origin, and following a link to one
+            # drops Android into a Custom Tab with an address bar. Every other
+            # key on that screen is framed; this page refused, which is correct
+            # behaviour for 'none' and is why it was the last one breaking out.
+            #
+            # What this permits is exactly one origin: the portal, on this
+            # machine, behind the same tailnet gate as this service. Every
+            # other site is still refused, and 'self' is included only so the
+            # page can be framed by its own server. The risk this control
+            # exists to stop — a hostile page framing the map to trick a click
+            # through it — is unchanged for anyone who is not already inside
+            # the tailnet and serving from this box.
+            #
+            # `default-src 'none'`, `connect-src 'self'`, `base-uri 'none'` and
+            # `form-action 'none'` are untouched, as is FLEET_MAP_ENABLED: this
+            # opens no route to the page that did not already exist, it only
+            # lets the portal put a frame around the one there is.
             return self._send(200, page, "text/html; charset=utf-8", {
                 "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; "
                 "style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; "
-                "form-action 'none'; frame-ancestors 'none'"})
+                "form-action 'none'; "
+                "frame-ancestors 'self' https://brainwave.tailacfa70.ts.net:8790"})
 
         if FLEET_MAP_ENABLED:
             # This alternate-port listener exposes metadata only. Legacy GETs
