@@ -110,8 +110,18 @@ planned binding does not verify the current pane occupant. The downloaded
 draft can contain a local root and owner, so keep it private.
 
 On this preview listener, GET is limited to `/healthz`, `/fleet-map`, and
-`/api/fleet-map`; all POSTs are rejected. Legacy terminal, chat, and board
-routes are unavailable. The collector never supplies pane text to the map.
+`/api/fleet-map`. The only POST is `/api/fleet-explain`, a same-origin,
+tailnet-gated question over the current redacted snapshot. It sends a bounded
+selection of map facts to the local Ollama model used by Fleetdeck, returns
+the answer with source references and snapshot time, and picks navigation from
+current graph IDs independently of the model text. If the local model cannot
+answer, a source-backed summary is returned. The guide has no shell, router,
+chat, registry, or write tools. Legacy terminal, chat, and board routes remain
+unavailable. The collector never supplies pane text to the map.
+The HTML is read on each page request. If the page loads before the listener
+has restarted with the new endpoint, the guide labels its answer **Map
+summary** and uses only the browser's current redacted snapshot. Model answers
+begin after the listener restarts; the browser summary remains a safe fallback.
 If a source fails, the map keeps its last valid collection time and marks
 retained facts as last known. Computed router pipes describe eligibility under
 the on-disk routing file and tmux at collection time; active router policy and
@@ -122,6 +132,7 @@ Run the offline checks with:
 ```sh
 python3 -m unittest -v test_fleet_map.py
 python3 -m unittest -v test_fleet_map_infra.py
+python3 -m unittest -v test_fleet_explainer.py
 python3 test_fleetdeck.py --unit
 ```
 

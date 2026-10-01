@@ -191,6 +191,16 @@
   @media(max-width:780px){.layer-bar{display:block;padding:8px 11px}.layer-bar>span{display:block;margin-bottom:5px}.layer-view{min-height:390px;max-height:calc(100dvh - 285px);padding:15px 12px}.layer-intro{display:block}.layer-depth{display:inline-block;margin-top:10px}.overview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin:14px 0;max-width:none}.overview-grid>:nth-child(3){grid-column:1 / -1;grid-row:1}.overview-grid>:nth-child(2){grid-column:1;grid-row:2}.overview-grid>:nth-child(4){grid-column:2;grid-row:2}.overview-grid>:nth-child(1){grid-column:1;grid-row:3}.overview-grid>:nth-child(5){grid-column:2;grid-row:3}.overview-grid>:nth-child(2) .flow-arrow::after{content:"↓"}.overview-pipe{min-height:65px}.layer-flow{grid-template-columns:minmax(0,1fr);gap:4px}.flow-center{min-height:76px}.flow-center .flow-direction{height:24px;font-size:0}.flow-center .flow-direction::after{content:"↓";font-size:22px}.inspector{display:none;position:fixed;z-index:20;left:0;right:0;bottom:0;width:100%;height:auto;max-height:min(75dvh,650px);min-height:0;overflow:auto;border-top:2px solid #4cdbf0;box-shadow:0 -16px 50px #000b}.inspector.is-open{display:block}.inspect-close{display:inline-block}.inspector-body{padding:16px}.stage{min-height:0}.stage-head{gap:8px}.stage-actions{justify-content:flex-start}.layer-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.roster{max-height:none}.roster-list{display:none}.roster.is-open .roster-list{display:grid;max-height:220px;overflow:auto}.roster-toggle{display:inline-block;float:right;margin-top:-31px}.roster .panel-head{padding:11px 14px}.roster .panel-head p{margin-right:115px}}
   @media(max-width:440px){.hero{padding:7px 12px}.hero h1{font-size:19px}.hero p{display:none}.status-pill{margin-top:5px;padding:5px 9px}.toolbar{padding:6px 11px}.stamp{display:none}.layer-cards,.scope-grid,.responsibility-grid{grid-template-columns:minmax(0,1fr)}.layer-intro h3{display:none}.layer-intro p{font-size:11px}.stage-head{display:block;padding:8px 12px}.stage-actions{margin-top:8px}.roster .panel-head{position:relative;padding-right:142px}.roster .panel-head p{margin-right:0}.roster-toggle{position:absolute;right:12px;bottom:11px;float:none;margin:0}}
   @media(max-width:620px){.creator{width:100vw;max-height:100dvh;height:100dvh;border:0;border-radius:0}.creator-head,.creator-body{padding-left:17px;padding-right:17px}.creator-context{grid-template-columns:1fr 1fr}.creator-diff div{grid-template-columns:1fr;gap:2px}}
+  .guide-toggle{position:fixed;z-index:29;left:18px;bottom:18px;display:flex;align-items:center;gap:9px;border:1px solid #67d4de;border-radius:999px;background:#123447;color:#eaffff;padding:9px 15px;box-shadow:0 9px 32px #0009;font-weight:850}
+  .guide-toggle:hover{background:#1b5060}.guide-toggle .guide-dot,.guide-head .guide-dot{display:grid;place-items:center;width:27px;height:27px;flex:none;border-radius:50%;background:#4cdbf0;color:#092332;font-size:18px;box-shadow:0 0 0 3px #4cdbf03d}
+  .guide-panel{position:fixed;z-index:30;left:18px;bottom:76px;width:min(390px,calc(100vw - 36px));max-height:min(650px,calc(100dvh - 100px));display:flex;flex-direction:column;border:1px solid #5baabb;border-radius:15px;background:#0e2131;color:#eaf8ff;box-shadow:0 18px 60px #000b;overflow:hidden}
+  .guide-head{display:flex;align-items:center;gap:10px;padding:13px 14px;border-bottom:1px solid #35596d;background:#133045}.guide-head strong{display:block;font-size:13px}.guide-head small{display:block;color:#afcad6;font-size:10px}.guide-head button{margin-left:auto;border:0;background:transparent;color:#d9f6ff;font-size:23px;line-height:1;padding:3px 7px}
+  .guide-log{min-height:120px;max-height:350px;overflow:auto;padding:12px;display:grid;align-content:start;gap:10px}.guide-entry{max-width:95%;border:1px solid #385c71;border-radius:10px;padding:9px 11px;background:#142e42;font-size:12px;line-height:1.5;overflow-wrap:anywhere}.guide-entry.user{justify-self:end;border-color:#5b8d9f;background:#1d4053}.guide-entry p{margin:0}.guide-entry small{display:block;margin-top:7px;color:#a4c2d1;font-size:10px}.guide-entry button{margin-top:8px;padding:5px 8px;border:1px solid #75beca;border-radius:6px;background:#204b5a;color:#efffff;font-weight:800;font-size:11px}
+  .guide-sources{margin-top:8px;border-top:1px solid #345366;padding-top:6px}.guide-sources summary{cursor:pointer;color:#aeeaf2;font-size:10px;font-weight:850}.guide-sources span{display:block;margin-top:5px;color:#b4ceda;font-size:10px;overflow-wrap:anywhere}
+  .guide-prompts{display:flex;gap:5px;flex-wrap:wrap;padding:0 12px 9px}.guide-prompts button{border:1px solid #3f697b;border-radius:999px;background:#15354a;color:#d6eef7;padding:5px 8px;font-size:10px}.guide-prompts button:hover{border-color:#4cdbf0}
+  .guide-form{display:flex;gap:6px;padding:10px;border-top:1px solid #35596d}.guide-form input{min-width:0;flex:1;border:1px solid #456e81;border-radius:8px;background:#081b2b;color:#ecfaff;padding:9px 10px}.guide-form button{border:0;border-radius:8px;background:#4cdbf0;color:#092332;padding:8px 12px;font-weight:850}.guide-form button:disabled{opacity:.6}
+  .guide-spark{position:fixed;z-index:35;pointer-events:none;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:#4cdbf0;color:#082332;box-shadow:0 0 0 5px #4cdbf044,0 0 20px #4cdbf0;font-size:17px}
+  @media(max-width:780px){.guide-toggle{left:auto;right:12px;bottom:12px}.guide-panel{left:10px;right:10px;bottom:66px;width:auto;max-height:calc(100dvh - 88px)}}
 </style>
 </head>
 <body>
@@ -215,6 +225,13 @@
   </div>
   <p class="foot"><strong>How to read it:</strong> solid stems contain windows and panes; arrows show directed named relationships. Dotted blue pipes are computed eligibility at collection time, not delivered messages. Select a pipe to inspect its source and age.</p>
 </main>
+<button class="guide-toggle" id="guide-toggle" type="button" aria-expanded="false" aria-controls="guide-panel"><span class="guide-dot" aria-hidden="true">✦</span> Ask the map guide</button>
+<section class="guide-panel" id="guide-panel" aria-label="Live network guide" hidden>
+  <div class="guide-head"><span class="guide-dot" aria-hidden="true">✦</span><div><strong>Network guide</strong><small>Current redacted snapshot · model when available</small></div><button id="guide-close" type="button" aria-label="Close network guide">×</button></div>
+  <div class="guide-log" id="guide-log" role="log" aria-live="polite" aria-relevant="additions text"><div class="guide-entry"><p>Ask about a layer, session, or route. I can take you to its place on this map and open the evidence.</p></div></div>
+  <div class="guide-prompts"><button type="button" data-guide-prompt="Explain this layer">This layer</button><button type="button" data-guide-prompt="Trace this session's chat route">Trace chat route</button><button type="button" data-guide-prompt="What does assigned mean here?">Assigned role</button></div>
+  <form class="guide-form" id="guide-form"><input id="guide-question" type="text" maxlength="600" autocomplete="off" aria-label="Ask about the terminal network" placeholder="Ask about a node, layer, or route"><button id="guide-send" type="submit">Ask</button></form>
+</section>
 <dialog class="creator" id="creator" aria-labelledby="creator-title">
   <div class="creator-head"><div><span class="eyebrow">Character creator · planned binding</span><h2 id="creator-title">Adopt this terminal</h2><p>The draft stays in your browser. Apply happens through the registry CLI.</p></div><button class="btn close" id="creator-close" type="button" aria-label="Close creator">×</button></div>
   <div class="creator-body">
@@ -744,6 +761,96 @@
   function selectEdge(id){selectedKind="edge";selectedId=id;allMode=false;render();openInspector()}
   function selectRelation(id){selectedKind="relation";selectedId=id;render();openInspector()}
   function setLayer(id){if(!layerDefs.some(function(l){return l.id===id}))return;if(id==="terminals"&&activeLayer!=="terminals")autoFitTerminal=true;activeLayer=id;allMode=false;selectedKind="node";selectedId=selectedSession;byId("inspector").classList.remove("is-open");render();var tab=byId("layer-tabs").querySelector('[data-layer="'+id+'"]');if(tab){tab.scrollIntoView({inline:"nearest",block:"nearest"});tab.focus({preventScroll:true})}}
+  function guideOpen(open){
+    byId("guide-panel").hidden=!open;
+    byId("guide-toggle").setAttribute("aria-expanded",open?"true":"false");
+    if(open)byId("guide-question").focus();else byId("guide-toggle").focus({preventScroll:true});
+  }
+  function guideEntry(message,kind,meta,target,references){
+    var entry=document.createElement("div"),paragraph=document.createElement("p");entry.className="guide-entry"+(kind==="user"?" user":"");paragraph.textContent=message;entry.appendChild(paragraph);
+    if(meta){var detail=document.createElement("small");detail.textContent=meta;entry.appendChild(detail)}
+    if(Array.isArray(references)&&references.length){var sources=document.createElement("details"),summary=document.createElement("summary");sources.className="guide-sources";summary.textContent="Map evidence ("+references.length+")";sources.appendChild(summary);references.forEach(function(ref){var line=document.createElement("span");line.textContent=(ref.id||ref.kind||"item")+" · "+(ref.evidence||"unknown")+" · "+(Array.isArray(ref.sources)?ref.sources.join(", "):"source unknown");sources.appendChild(line)});entry.appendChild(sources)}
+    if(target){var button=document.createElement("button");button.type="button";button.textContent="Show on map →";button.addEventListener("click",function(){guideWalk(target)});entry.appendChild(button)}
+    byId("guide-log").appendChild(entry);byId("guide-log").scrollTop=byId("guide-log").scrollHeight;
+    while(byId("guide-log").children.length>18)byId("guide-log").firstElementChild.remove();
+    return entry;
+  }
+  function guideTargetElement(kind,id,layer){
+    var attribute=kind==="edge"?"edge":kind==="node"?"node":"layer";
+    var candidates=Array.from(document.querySelectorAll("[data-"+attribute+"]")).filter(function(el){return el.dataset[attribute]===id&&el.getClientRects().length});
+    return candidates.find(function(el){return byId("layer-view").contains(el)})||candidates.find(function(el){return byId("diagram-scroll").contains(el)})||candidates[0]||Array.from(byId("layer-tabs").children).find(function(el){return el.dataset.layer===layer});
+  }
+  async function guideAnimate(target){
+    if(!target||window.matchMedia("(prefers-reduced-motion: reduce)").matches)return;
+    target.scrollIntoView({block:"nearest",inline:"nearest",behavior:"smooth"});
+    await new Promise(function(resolve){requestAnimationFrame(function(){requestAnimationFrame(resolve)})});
+    var start=byId("guide-toggle").getBoundingClientRect(),end=target.getBoundingClientRect();
+    var spark=document.createElement("span");spark.className="guide-spark";spark.textContent="✦";spark.setAttribute("aria-hidden","true");document.body.appendChild(spark);
+    var x=start.left+start.width/2-14,y=start.top+start.height/2-14,dx=end.left+end.width/2-14-x,dy=end.top+end.height/2-14-y;
+    spark.style.left=x+"px";spark.style.top=y+"px";
+    try{await spark.animate([{transform:"translate(0,0) scale(1)",opacity:1},{transform:"translate("+dx+"px,"+dy+"px) scale(.7)",opacity:1}],{duration:650,easing:"cubic-bezier(.25,.8,.25,1)"}).finished}catch(e){}finally{spark.remove()}
+  }
+  async function guideWalk(target){
+    if(!data||demo||data.status==="source_unavailable")return;
+    var layer=target&&target.layer;if(!layerDefs.some(function(item){return item.id===layer}))return;
+    var node=target.kind==="node"&&data.nodes.find(function(item){return item.id===target.id});
+    var edge=target.kind==="edge"&&data.edges.find(function(item){return item.id===target.id});
+    if(target.kind==="node"&&!node||target.kind==="edge"&&!edge||target.kind!=="node"&&target.kind!=="edge"&&target.kind!=="layer"){
+      guideEntry("That item changed in the latest snapshot. Ask again to locate the current evidence.","guide");return;
+    }
+    if(window.matchMedia("(max-width: 780px)").matches)guideOpen(false);
+    if(node)selectNode(node.id,layer,false);
+    else if(edge){
+      var endpoint=data.nodes.find(function(item){return item.id===edge.to})||data.nodes.find(function(item){return item.id===edge.from});
+      if(endpoint)selectNode(endpoint.id,layer,false);else setLayer(layer);
+    }else setLayer(layer);
+    var element=guideTargetElement(target.kind,target.id,layer);await guideAnimate(element);
+    if(node&&data.nodes.some(function(item){return item.id===node.id}))selectNode(node.id,layer,true);
+    else if(edge&&data.edges.some(function(item){return item.id===edge.id}))selectEdge(edge.id);
+    else if(target.kind==="layer")byId("stage-title").focus({preventScroll:true});
+  }
+  function guideBrowserSummary(question){
+    var terms={route:"routing",routing:"routing",chat:"routing",message:"routing",assigned:"identity",role:"identity",identity:"identity",pane:"runtime",process:"runtime",tmux:"runtime",tool:"capabilities",skill:"capabilities",memory:"instructions",instruction:"instructions",service:"services",api:"services",network:"network",tailscale:"network",workspace:"state",lease:"state",deploy:"deployment",terminal:"terminals"};
+    var words=(question.toLowerCase().match(/[a-z]+/g)||[]),layer=words.map(function(word){return terms[word]}).find(Boolean)||activeLayer;
+    var picked=data.nodes.find(function(node){return node.type==="session"&&node.label&&question.toLowerCase().includes(node.label.toLowerCase())})||data.nodes.find(function(node){return node.id===selectedSession});
+    var chosenEdge=data.edges.find(function(edge){return edge.id===selectedId});
+    var refs=[],lines=["The "+layer+" layer: "+layerDefs.find(function(item){return item.id===layer}).description];
+    if(picked){
+      refs.push({id:picked.id,kind:"node",evidence:picked.observed===true?"observed":picked.declared===true?"declared":"unknown",sources:picked.source_refs||[]});
+      lines.push(picked.label+" is "+(picked.observed===true?"observed as a tmux session":"present as a declared or last-known session")+" in this snapshot.");
+      if(layer==="identity"&&picked.identity){lines.push("Its identity card role is "+(picked.identity.role||"unknown")+". A role label does not verify who occupies the pane.")}
+      if(layer==="routing"){
+        var routes=data.edges.filter(function(edge){return (edge.from===picked.id||edge.to===picked.id)&&["chat_routes_to","router_addressable","router_agent_pane_ready","hands_off_to"].includes(edge.type)}).slice(0,3);
+        routes.forEach(function(edge){lines.push(edge.type+" · "+(edge.evidence||"unknown")+" · "+(edge.freshness&&edge.freshness.status||"status unknown"));refs.push({id:edge.id,kind:"edge",evidence:edge.evidence||"unknown",sources:[edge.source||"unknown"]})});
+        lines.push(routes.length?"These routes do not prove a message was delivered.":"No route for this session appears in the current snapshot.");
+      }
+    }
+    if(chosenEdge){refs.push({id:chosenEdge.id,kind:"edge",evidence:chosenEdge.evidence||"unknown",sources:[chosenEdge.source||"unknown"]});lines.push("Selected relationship: "+(chosenEdge.display||chosenEdge.type)+" · "+(chosenEdge.evidence||"unknown")+".")}
+    return {answer:lines.join(" "),navigate:chosenEdge?{kind:"edge",id:chosenEdge.id,layer:layer}:picked?{kind:"node",id:picked.id,layer:layer}:{kind:"layer",id:layer,layer:layer},references:refs,snapshot_status:data.status,collected_at:data.collected_at,mode:"browser-summary"};
+  }
+  var guideBusy=false;
+  async function guideAsk(question){
+    question=String(question||"").trim();if(!question||guideBusy)return;
+    if(!data||demo||data.status==="demo"){guideEntry("This tour is synthetic. Refresh the live snapshot before asking about real infrastructure.","guide");return}
+    if(data.status==="source_unavailable"){guideEntry("The live snapshot is unavailable. Refresh the map and try again.","guide");return}
+    guideBusy=true;byId("guide-send").disabled=true;guideEntry(question,"user");
+    var pending=guideEntry("Checking the current map evidence…","guide");
+    var controller=new AbortController(),timer=setTimeout(function(){controller.abort()},20000);
+    try{
+      var response=await fetch("/api/fleet-explain",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question:question,focus_id:(selectedKind==="node"||selectedKind==="edge")?selectedId:selectedSession,layer:activeLayer}),cache:"no-store",signal:controller.signal});
+      var result=response.status===405?guideBrowserSummary(question):await response.json();if(!response.ok&&response.status!==405)throw Error(result.error||"Guide unavailable");
+      pending.remove();
+      var refs=Array.isArray(result.references)?result.references:[];
+      var meta=(result.mode==="local-model"?"Local model · ":result.mode==="browser-summary"?"Map summary · ":"Source-backed summary · ")+(result.snapshot_status||"unknown")+" snapshot · "+(result.collected_at||"time unknown")+" · "+refs.length+" cited map objects";
+      guideEntry(result.answer||"No answer in this snapshot.","guide",meta,result.navigate,refs);
+      if(result.navigate)await guideWalk(result.navigate);
+    }catch(e){pending.remove();guideEntry(e.name==="AbortError"?"The local explanation timed out. Try again.":"The guide could not answer from the current snapshot. Refresh and try again.","guide")}
+    finally{clearTimeout(timer);guideBusy=false;byId("guide-send").disabled=false}
+  }
+  byId("guide-toggle").addEventListener("click",function(){guideOpen(byId("guide-panel").hidden)});
+  byId("guide-close").addEventListener("click",function(){guideOpen(false)});
+  byId("guide-form").addEventListener("submit",function(ev){ev.preventDefault();var input=byId("guide-question"),question=input.value;input.value="";guideAsk(question)});
+  byId("guide-panel").addEventListener("click",function(ev){var prompt=ev.target.closest("[data-guide-prompt]");if(prompt)guideAsk(prompt.dataset.guidePrompt)});
   async function refresh(){
     demo=false;var serial=++requestSerial;byId("refresh").disabled=true;
     try{var res=await fetch("/api/fleet-map",{cache:"no-store"}),next=await res.json();if(serial!==requestSerial||demo)return;

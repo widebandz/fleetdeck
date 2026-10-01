@@ -61,11 +61,13 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fleet_map_reader import fleet_map_cache
+from fleet_explainer import explain as explain_fleet
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FLEET_MAP_PAGE = os.path.join(HERE, "fleet_map.html")
@@ -2472,15 +2474,40 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(200, page, "text/html; charset=utf-8")
 
     def do_POST(self):
-        """The one mutating route. Off unless agents.actions is switched on —
-        see AGENT_ACTIONS. Even then it can only touch labels the scan already
-        returned, so a caller cannot name an arbitrary launchd job."""
+        """The map accepts one read-only explanation query; other POSTs retain
+        their existing boundaries and action gates."""
         path = self.path.split("?")[0].rstrip("/") or "/"
         if not allowed(self.client_address[0]):
             return self._send(403, "no\n", "text/plain")
         if FLEET_MAP_ENABLED:
-            # The isolated map preview is read-only as an entire listener.
-            return self._send(405, "read-only preview\n", "text/plain")
+            if path != "/api/fleet-explain":
+                return self._send(405, "read-only preview\n", "text/plain")
+            origin = self.headers.get("Origin")
+            if origin and urllib.parse.urlparse(origin).netloc != self.headers.get("Host"):
+                return self._send(403, json.dumps({"error": "same-origin map request required"}), "application/json")
+            if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
+                return self._send(415, json.dumps({"error": "JSON required"}), "application/json")
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                if n <= 0 or n > 1500:
+                    raise ValueError("invalid length")
+                body = json.loads(self.rfile.read(n))
+                if not isinstance(body, dict):
+                    raise ValueError("invalid body")
+                question = body.get("question")
+                focus_id = body.get("focus_id")
+                layer = body.get("layer", "overview")
+                if focus_id is not None and (not isinstance(focus_id, str) or len(focus_id) > 120):
+                    raise ValueError("invalid focus")
+                if not isinstance(layer, str) or len(layer) > 30:
+                    raise ValueError("invalid layer")
+                code, snapshot = fleet_map_cache.get()
+                if code != 200:
+                    return self._send(503, json.dumps({"error": "fleet snapshot unavailable"}), "application/json")
+                response = explain_fleet(snapshot, question, focus_id, layer)
+            except (ValueError, TypeError, json.JSONDecodeError):
+                return self._send(400, json.dumps({"error": "valid question and map context required"}), "application/json")
+            return self._send(200, json.dumps(response), "application/json", {"X-Content-Type-Options": "nosniff"})
 
         # Speech is a POST because the text can be long, and a proxy rather than
         # a link because :8890 is not on the tailnet — the phone would have
