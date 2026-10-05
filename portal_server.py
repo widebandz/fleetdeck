@@ -68,13 +68,18 @@ import threading
 import time
 import uuid
 import urllib.error
+import urllib.parse
 import urllib.request
 from contextlib import contextmanager
 from urllib.parse import urlsplit
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from fleet_map_reader import fleet_map_cache
+from fleet_explainer import explain as explain_fleet
+
 HERE = os.path.dirname(os.path.abspath(__file__))
+FLEET_MAP_PAGE = os.path.join(HERE, "fleet_map.html")
 CFG_FILE = os.path.join(HERE, "config.json")
 REGISTRY = os.path.join(HERE, "services.json")
 GLYPHS = os.path.join(HERE, "glyphs.json")
@@ -250,6 +255,11 @@ BRAND = os.environ.get("FLEETDECK_BRAND", CONF["brand"])
 HOST = os.environ.get("FLEETDECK_HOST") or CONF["machine"] or tailnet_name()
 PORT = int(os.environ.get("FLEETDECK_PORT", CONF["ports"]["portal"]))
 BIND = os.environ.get("FLEETDECK_BIND", "127.0.0.1")
+# Slice one runs only as a separate local preview. The installed portal's
+# standard port is Tailscale Served, even though its own socket is loopback.
+FLEET_MAP_ENABLED = (os.environ.get("FLEETDECK_FLEET_MAP") == "1"
+                     and BIND == "127.0.0.1"
+                     and PORT != int(CONF["ports"]["portal"]))
 MACHINE = HOST.split(".")[0]
 SCAN_TTL = 4.0  # seconds; a phone poll every 10s should not fork lsof each time
 
@@ -4246,6 +4256,52 @@ class Handler(BaseHTTPRequestHandler):
             if not control_authorized(self.headers.get("Authorization")):
                 return self._control_refusal()
 
+        # Deliberately opt-in: the portal is visible to permitted tailnet peers,
+        # and this page reveals private session topology even though it is read-only.
+        if path in ("/fleet-map", "/api/fleet-map"):
+            if not FLEET_MAP_ENABLED:
+                return self._send(404, "not here\n", "text/plain")
+            if path == "/api/fleet-map":
+                code, snapshot = fleet_map_cache.get()
+                return self._send(code, json.dumps(snapshot), "application/json")
+            try:
+                with open(FLEET_MAP_PAGE, encoding="utf-8") as fh:
+                    page = fh.read()
+            except OSError:
+                return self._send(503, "fleet map unavailable\n", "text/plain")
+            # `frame-ancestors` names ONE origin rather than 'none', as of
+            # 2026-09-27, and nothing else in this header moved.
+            #
+            # The Fleetdeck portal on :8790 frames its own surfaces so that an
+            # installed phone app never leaves the standalone shell — a
+            # different port is a different origin, and following a link to one
+            # drops Android into a Custom Tab with an address bar. Every other
+            # key on that screen is framed; this page refused, which is correct
+            # behaviour for 'none' and is why it was the last one breaking out.
+            #
+            # What this permits is exactly one origin: the portal, on this
+            # machine, behind the same tailnet gate as this service. Every
+            # other site is still refused, and 'self' is included only so the
+            # page can be framed by its own server. The risk this control
+            # exists to stop — a hostile page framing the map to trick a click
+            # through it — is unchanged for anyone who is not already inside
+            # the tailnet and serving from this box.
+            #
+            # `default-src 'none'`, `connect-src 'self'`, `base-uri 'none'` and
+            # `form-action 'none'` are untouched, as is FLEET_MAP_ENABLED: this
+            # opens no route to the page that did not already exist, it only
+            # lets the portal put a frame around the one there is.
+            return self._send(200, page, "text/html; charset=utf-8", {
+                "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; "
+                "style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; "
+                "form-action 'none'; "
+                "frame-ancestors 'self' https://brainwave.tailacfa70.ts.net:8790"})
+
+        if FLEET_MAP_ENABLED:
+            # This alternate-port listener exposes metadata only. Legacy GETs
+            # include terminal and chat previews, so none are reachable here.
+            return self._send(404, "not here\n", "text/plain")
+
         # Fullscreen on iPhone is not the Fullscreen API — Safari on iOS refuses
         # requestFullscreen for anything but <video>. The only real fullscreen
         # there is Add to Home Screen, which needs a manifest and a PNG icon
@@ -4787,13 +4843,59 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(200, page, "text/html; charset=utf-8")
 
     def do_POST(self):
-        """The one mutating route. Off unless agents.actions is switched on —
-        see AGENT_ACTIONS. Even then it can only touch labels the scan already
-        returned, so a caller cannot name an arbitrary launchd job."""
+        """The map accepts one read-only explanation query; other POSTs retain
+        their existing boundaries and action gates."""
         path = self.path.split("?")[0].rstrip("/") or "/"
         if not allowed(self.client_address[0]):
             self._discard_body()
             return self._send(403, "no\n", "text/plain")
+        # The map listener owns its whole process, so it is settled before the
+        # normal portal's gates are consulted: one read-only POST allowed, the
+        # rest refused.
+        #
+        # Every refusal here that happens BEFORE the body is read drains it
+        # first — see _discard_body(). The refusals after the read deliberately
+        # do not: draining a body already consumed would block on a socket with
+        # nothing left to give.
+        if FLEET_MAP_ENABLED:
+            if path != "/api/fleet-explain":
+                self._discard_body()
+                return self._send(405, "read-only preview\n", "text/plain")
+            origin = self.headers.get("Origin")
+            if origin and urllib.parse.urlparse(origin).netloc != self.headers.get("Host"):
+                self._discard_body()
+                return self._send(403, json.dumps({"error": "same-origin map request required"}), "application/json")
+            if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
+                self._discard_body()
+                return self._send(415, json.dumps({"error": "JSON required"}), "application/json")
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                n = -1
+            if n <= 0 or n > 1500:
+                # Length refused without reading, so the bytes are still there.
+                self._discard_body()
+                return self._send(400, json.dumps({"error": "valid question and map context required"}), "application/json")
+            try:
+                body = json.loads(self.rfile.read(n))
+                if not isinstance(body, dict):
+                    raise ValueError("invalid body")
+                question = body.get("question")
+                focus_id = body.get("focus_id")
+                layer = body.get("layer", "overview")
+                if focus_id is not None and (not isinstance(focus_id, str) or len(focus_id) > 120):
+                    raise ValueError("invalid focus")
+                if not isinstance(layer, str) or len(layer) > 30:
+                    raise ValueError("invalid layer")
+                code, snapshot = fleet_map_cache.get()
+                if code != 200:
+                    return self._send(503, json.dumps({"error": "fleet snapshot unavailable"}), "application/json")
+                response = explain_fleet(snapshot, question, focus_id, layer)
+            except (ValueError, TypeError, json.JSONDecodeError):
+                # The read above consumed the body already — no drain here.
+                return self._send(400, json.dumps({"error": "valid question and map context required"}), "application/json")
+            return self._send(200, json.dumps(response), "application/json", {"X-Content-Type-Options": "nosniff"})
+
         if onboarding_config() and path not in (
                 "/api/notes", "/api/notes/status", "/api/notes/edit",
                 "/api/notes/delete"):

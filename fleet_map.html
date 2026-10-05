@@ -1,0 +1,996 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Live terminal network · Fleetdeck</title>
+<style>
+  :root{--ink:#17352f;--muted:#5c746a;--line:#d5e5d7;--paper:#f4faf4;--card:#fffefa;--mint:#dff2e5;--focus:#276fbd;--dark:#173c3a;--purple:#8a65a7;--blue:#557fb1;--rose:#b76a81;--amber:#a87635}
+  *{box-sizing:border-box} html{scroll-behavior:smooth} body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  button,input{font:inherit} button{cursor:pointer} button:disabled{cursor:default;opacity:.5}
+  :focus-visible{outline:3px solid var(--focus)!important;outline-offset:3px}
+  [hidden]{display:none!important}
+  .mast{background:var(--dark);color:#f6fff7;padding:17px clamp(16px,3vw,36px);display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .brand{display:flex;align-items:center;gap:11px;color:inherit;text-decoration:none;font-weight:850;letter-spacing:-.03em}
+  .brand-mark{width:34px;height:34px;border-radius:12px;background:#c9f0d6;display:grid;place-items:center;color:#225b4b;font-size:21px;box-shadow:inset 0 -3px 0 #9ed8ae}
+  .brand small{display:block;color:#b8d8cb;font-size:9px;letter-spacing:.16em;line-height:1.1}
+  .mast nav{display:flex;align-items:center;gap:8px}.mast a.nav{color:#e9fff0;text-decoration:none;border:1px solid #47726b;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:800}
+  .mast a.nav.active{background:#d8f0dd;color:#245348;border-color:#d8f0dd}
+  main{max-width:1700px;margin:auto;padding:24px clamp(14px,2vw,30px) 38px}
+  .eyebrow{text-transform:uppercase;letter-spacing:.17em;color:#447661;font-size:10px;font-weight:900}
+  .hero{display:flex;justify-content:space-between;gap:18px;align-items:end;margin-bottom:20px}
+  h1{font-size:clamp(27px,3vw,42px);line-height:1.03;letter-spacing:-.06em;margin:6px 0 8px}
+  .hero p{margin:0;max-width:660px;color:var(--muted)}
+  .status-pill{border-radius:100px;border:1px solid var(--line);background:#fff;padding:8px 12px;font-size:11px;font-weight:800;white-space:nowrap}
+  .status-pill[data-state="fresh"]{background:#e0f4e6;color:#266a43}.status-pill[data-state="partial"],.status-pill[data-state="stale"]{background:#fff0d8;color:#775123}.status-pill[data-state="demo"]{background:#efe8fa;color:#654481}.status-pill[data-state="source_unavailable"]{background:#fae8e8;color:#914e52}
+  .notice{border:1px solid #ead9aa;background:#fff7df;border-radius:13px;padding:10px 13px;color:#6e5824;font-size:12px;margin-bottom:14px}
+  .toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 15px}
+  .toolbar label{position:relative;display:block;flex:1 1 240px;max-width:360px}
+  .toolbar label span{position:absolute;left:12px;top:10px;color:#748b80}
+  .toolbar input{width:100%;padding:10px 12px 10px 34px;background:#fff;border:1px solid #ccdccc;border-radius:11px;color:var(--ink)}
+  .btn{border:1px solid #c9ddce;border-radius:11px;background:#fffefa;color:#245d4b;padding:9px 13px;font-size:12px;font-weight:800;box-shadow:0 2px 0 #dbe8dc}
+  .btn:hover{background:#edf8ef}.btn.primary{background:#214f47;border-color:#214f47;color:#fff}.btn.primary:hover{background:#2b695b}.btn.on{background:#e5f5e9;border-color:#83b99a}
+  .stamp{font-size:11px;color:var(--muted);margin-left:auto}
+  .layout{display:grid;grid-template-columns:minmax(190px,240px) minmax(0,1fr) minmax(230px,290px);gap:13px;align-items:start}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:0 5px 20px #1d5b3d0a}
+  .panel-head{padding:14px 16px;border-bottom:1px solid var(--line)} .panel-head h2{margin:2px 0 0;font-size:17px;letter-spacing:-.04em}.panel-head p{font-size:11px;color:var(--muted);margin:3px 0 0}
+  .roster{position:sticky;top:12px;max-height:calc(100vh - 25px);overflow:auto}
+  .roster-list{padding:7px;display:grid;gap:3px}.roster-item{display:grid;grid-template-columns:18px 1fr;gap:6px;text-align:left;width:100%;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--ink);padding:8px 9px}
+  .roster-item:hover{background:#eef8ef}.roster-item.active{background:#e0f3e5;border-color:#a4ccb0}.roster-item .symbol{font-size:14px;line-height:1.4;color:#347654}
+  .roster-item .name{display:block;font-weight:800;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.roster-item small{display:block;color:var(--muted);font-size:10px}
+  .roster-empty{color:var(--muted);font-size:12px;padding:12px}
+  .stage{min-width:0;overflow:hidden}.stage-head{padding:15px 17px 10px;display:flex;align-items:start;justify-content:space-between;gap:10px}
+  .stage-head h2{margin:1px 0 4px;font-size:20px;letter-spacing:-.05em}.stage-head p{margin:0;color:var(--muted);font-size:11px}
+  .legend{display:flex;flex-wrap:wrap;gap:6px;padding:0 17px 12px}.legend span{border:1px solid #d8e7db;border-radius:100px;padding:4px 8px;font-size:10px;font-weight:800;background:#fff;color:#526e5c}
+  .legend b{font-size:12px}.legend .purple{color:var(--purple)}.legend .blue{color:var(--blue)}.legend .rose{color:var(--rose)}
+  .diagram-scroll{overflow:auto;margin:0 10px 10px;border:1px solid #d5e5da;border-radius:13px;background-color:#f8fcf7;background-image:radial-gradient(#d5e9da 1px,transparent 1px);background-size:18px 18px}
+  .diagram{position:relative;width:960px;min-width:960px;min-height:670px;margin:0 auto}.diagram svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+  .wire{pointer-events:all;cursor:pointer}.wire .line{fill:none;stroke:#8fae99;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}.wire.semantic .line{stroke:var(--wire,#946bb2);stroke-width:3}.wire.declared .line{stroke-dasharray:7 5}.wire .hit{fill:none;stroke:transparent;stroke-width:18;pointer-events:stroke}.wire .source-port,.wire .target-port{fill:#091724;stroke:var(--pipe-color,#b5e87b);stroke-width:2;pointer-events:none}.wire:hover .line,.wire.active .line{stroke-width:5}.wire.dim{opacity:.18}
+  .node-layer,.edge-tags{position:absolute;inset:0;pointer-events:none}.map-node,.edge-tag{position:absolute;pointer-events:auto}
+  .map-node{display:flex;align-items:center;gap:10px;text-align:left;width:190px;min-height:66px;padding:10px 11px;background:#fffefa;border:1px solid #bcd8c3;border-radius:15px;color:var(--ink);box-shadow:0 4px 0 #cfe5d3,0 7px 18px #265c3810}
+  .map-node:hover{transform:translateY(-1px);border-color:#75af87}.map-node.active{outline:3px solid var(--focus);outline-offset:2px}.map-node.dim{opacity:.28}
+  .map-node.host{background:#eaf8ed;border-color:#95cda3}.map-node.session{background:#fffef8;border-color:#8db6a0;width:218px}.map-node.pane{background:#eef4fd;border-color:#adc5e6}.map-node.resource{background:#f8f2fc;border-color:#d6c0e2}
+  .map-node .icon{width:36px;height:36px;flex:none;border-radius:11px;display:grid;place-items:center;background:#dff1e5;color:#397354;font-size:21px}
+  .map-node.pane .icon{background:#dce8fb;color:#5578a9}.map-node.resource .icon{background:#eee2f7;color:#8667a2}
+  .map-node small{display:block;font-size:9px;letter-spacing:.09em;text-transform:uppercase;font-weight:900;color:#607e68}.map-node strong{display:block;font-size:13px;line-height:1.2;overflow-wrap:anywhere}.map-node em{display:block;color:#647a6c;font-size:10px;font-style:normal}
+  .edge-tag{max-width:160px;transform:translate(-50%,-50%);border:1px solid #cfb4dd;border-radius:100px;padding:5px 8px;background:#fff;color:#745486;font-size:9px;font-weight:900;letter-spacing:.02em;box-shadow:0 2px 7px #47325718}
+  .edge-tag:hover,.edge-tag.active{outline:3px solid var(--focus);outline-offset:1px}.edge-tag.dim{opacity:.25}
+  .map-empty{padding:55px 22px;text-align:center;min-height:330px;display:grid;align-content:center;justify-items:center}.map-empty .face{font-size:39px;color:#8eac94}.map-empty h2{margin:8px 0 0;font-size:20px}.map-empty p{max-width:380px;color:var(--muted);margin:7px 0 14px}
+  .inspector{position:sticky;top:12px;min-height:265px;background:#edf8ed}.inspector-body{padding:16px}.inspect-icon{height:44px;width:44px;border-radius:14px;background:#d2ead6;display:grid;place-items:center;font-size:23px;color:#37704d;margin-bottom:10px}
+  .inspect-kicker{font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#537c5d}.inspect-title{font-size:21px;line-height:1.1;letter-spacing:-.05em;margin:4px 0 7px;overflow-wrap:anywhere}.inspect-desc{color:#4a6552;font-size:12px;margin:0 0 10px}
+  .facts{display:grid;gap:0;margin:11px 0 0}.facts div{border-top:1px solid #cee5d2;padding:8px 0;display:grid;gap:2px}.facts dt{font-size:9px;text-transform:uppercase;letter-spacing:.1em;font-weight:900;color:#5b7b61}.facts dd{margin:0;font-size:11px;overflow-wrap:anywhere}
+  .fact-unknown{color:#8a6331}.fact-stale{color:#8b5b35}.inspect-note{font-size:10px;color:#68806b;line-height:1.5;margin-top:13px}
+  .mobile-map{display:none}.mobile-tree,.mobile-tree ol{list-style:none;margin:0;padding:0}.mobile-tree ol{margin:5px 0 6px 13px;padding-left:13px;border-left:2px solid #d2e4d5}.mobile-tree li{margin:4px 0}.mobile-tree button,.connection-list button{display:block;width:100%;text-align:left;background:#fff;border:1px solid #d7e7da;border-radius:10px;color:var(--ink);padding:8px 10px}.mobile-tree button.active,.connection-list button.active{outline:3px solid var(--focus)}.mobile-tree button small,.connection-list button small{display:block;color:var(--muted);font-size:10px}.connection-list{display:grid;gap:6px}.connection-list button b{display:block;font-size:11px}.connection-list button b span{color:var(--purple)}
+  .mobile-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.mobile-head h3{margin:0;font-size:14px}.mobile-map h4{margin:16px 0 7px;border-top:1px solid var(--line);padding-top:13px}
+  .connection-route{display:grid;grid-template-columns:minmax(0,1fr) 24px minmax(0,1fr);align-items:center;gap:6px;margin:6px 0}.connection-endpoint{display:block;min-width:0;border:1px solid #59758a;border-radius:6px;padding:5px 7px;background:#102638;color:#f0faff;font-size:10px;font-weight:750;overflow-wrap:anywhere}.connection-route-arrow{color:#4cdbf0;text-align:center;font-size:17px;font-weight:900}.connection-kind{display:block;color:#cce9f6;font-size:11px;font-weight:850}.connection-detail{display:block;color:#a9c7d7;font-size:10px;line-height:1.35}
+  .foot{font-size:11px;color:var(--muted);margin:18px 2px}.foot strong{color:var(--ink)}
+  @media(max-width:1150px){.layout{grid-template-columns:190px minmax(0,1fr)}.inspector{grid-column:2;position:static;min-height:0}.roster{grid-row:1 / span 2}}
+  @media(max-width:740px){main{padding:20px 13px 28px}.hero{display:block}.status-pill{display:inline-block;margin-top:10px}.stamp{width:100%;margin-left:0}.layout{display:flex;flex-direction:column}.roster,.stage,.inspector{width:100%;position:static;max-height:none}.roster-list{max-height:145px;overflow:auto;grid-template-columns:repeat(2,minmax(0,1fr))}.stage{order:1}.inspector{order:2}.roster{order:0}.diagram-scroll{display:none}.mobile-map{display:block;padding:13px 16px 16px}.stage-head{padding-bottom:9px}.legend{padding-bottom:8px}.mobile-map .btn{font-size:10px;padding:6px 8px}.stage.diagram-open .diagram-scroll{display:block}.mobile-map h4{font-size:13px}}
+  @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.map-node:hover{transform:none}}
+  /* Fleetdeck's terminal-network visual system: compact blocks on a navy grid. */
+  :root{color-scheme:dark;--ink:#ebf8ff;--muted:#a5bdcc;--line:#2e4a62;--paper:#070f19;--card:#0d1a28;--focus:#fff2ad;--dark:#0a1723;--purple:#bda4ff;--blue:#82aefe;--rose:#fc80dc;--amber:#f7c872}
+  body{background:var(--paper);color:var(--ink)}
+  .mast{min-height:72px;background:#0a1723;border-bottom:1px solid var(--line);padding:12px 21px}
+  .brand-mark{background:#123244;border:1px solid #4f9db5;color:#4cdbf0;box-shadow:none}
+  .brand small{color:#a5bdcc}.mast a.nav{color:#d0e7f0;background:#112638;border-color:#426177}.mast a.nav.active{background:#1b4053;color:#a6edfc;border-color:#4cdbf0}
+  main{max-width:none;padding:0}
+  .eyebrow{color:#a2c5d8}
+  .hero{margin:0;padding:11px 20px;background:#0d1a28;border-bottom:1px solid var(--line);align-items:center}
+  .hero h1{font-size:23px;margin:1px 0 2px;letter-spacing:-.045em}.hero p{font-size:11px;max-width:850px;color:#b2c9d5}
+  .status-pill{background:#122b3b;border-color:#42657a;color:#d6ebf4}
+  .status-pill[data-state="fresh"]{background:#173848;border-color:#3c9db4;color:#a5edfa}
+  .status-pill[data-state="partial"],.status-pill[data-state="stale"]{background:#3c2c20;border-color:#a57944;color:#ffdc9f}
+  .status-pill[data-state="demo"]{background:#322342;border-color:#aa78d4;color:#e3caff}
+  .status-pill[data-state="source_unavailable"]{background:#3a2432;border-color:#ad6987;color:#f7c1d4}
+  .notice{margin:0;padding:7px 20px;border:0;border-bottom:1px solid #866745;border-radius:0;background:#33281e;color:#f3cf91}
+  .toolbar{margin:0;padding:8px 20px;background:#0b1928;border-bottom:1px solid var(--line)}
+  .toolbar label input{background:#0a1622;border-color:#426079;color:var(--ink)}.toolbar label input::placeholder{color:#91a9b8}.toolbar label span{color:#4cdbf0}
+  .btn{background:#142a3b;border-color:#405d73;border-radius:8px;box-shadow:none;color:#dcf2fb}
+  .btn:hover{background:#1c4256}.btn.primary{background:#4cdbf0;border-color:#59bdd0;color:#08202b}.btn.primary:hover{background:#98eff8}.btn.on{background:#244454;border-color:#4cdbf0}
+  .stamp{color:#adc7d3}
+  .layout{height:calc(100vh - 183px);min-height:550px;grid-template-columns:242px minmax(0,1fr) 325px;gap:0;align-items:stretch}
+  .panel{background:#0d1a28;border-radius:0;box-shadow:none;border:0}
+  .roster{position:static;max-height:none;height:100%;border-right:1px solid var(--line);overflow:auto}
+  .panel-head{border-bottom:1px solid var(--line);padding:15px 16px}.panel-head h2{font-size:14px}.panel-head p{color:var(--muted)}
+  .roster-list{padding:9px}.roster-item{border-radius:8px;color:var(--ink)}.roster-item:hover{background:#173247}.roster-item.active{background:#173247;border-color:#4888a5}
+  .roster-item .symbol{color:#4cdbf0}.roster-item small{color:var(--muted)}
+  .stage{display:flex;flex-direction:column;height:100%;min-height:0;background:#08131f}
+  .stage-head{background:#0c1b2a;border-bottom:1px solid var(--line);padding:12px 17px}.stage-head h2{font-size:16px}.stage-head p{color:var(--muted)}
+  .stage-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  .zoom-controls{display:flex;align-items:center;gap:3px;border:1px solid #405d73;border-radius:8px;padding:2px;background:#102334}.zoom-controls .btn{border:0;min-width:30px;padding:5px 7px}.zoom-controls output{min-width:36px;text-align:center;color:#bfd8e4;font-size:10px;font-weight:800}
+  .legend{background:#0c1b2a;border-bottom:1px solid var(--line);padding:0 17px 9px}.legend span{background:#142a3b;border-color:#3f5c71;color:#c8e2ee}
+  .legend .purple{color:#bda4ff}.legend .blue{color:#82aefe}.legend .rose{color:#fc80dc}
+  .diagram-scroll{flex:1;min-height:0;margin:0;border:0;border-radius:0;background-color:#091724;background-image:linear-gradient(rgba(87,131,158,.14) 1px,transparent 1px),linear-gradient(90deg,rgba(87,131,158,.14) 1px,transparent 1px);background-size:28px 28px;scrollbar-color:#47657d #0b1a29}
+  .diagram{min-height:680px}
+  .wire .line{stroke:#668198;stroke-width:2;opacity:.72}.wire.semantic{--pipe-color:#b5e87b}.wire.semantic .line{stroke:var(--pipe-color);stroke-width:3;opacity:.9}.wire.semantic[data-type="chat_routes_to"]{--pipe-color:#fc80dc}.wire.semantic[data-type="describes_session"]{--pipe-color:#ab8bbb}.wire.semantic[data-type="describes_session"] .line{stroke-dasharray:2 7}.wire.semantic[data-type="uses_tool"],.wire.semantic[data-type="executes_file"],.wire.semantic[data-type="uses_workspace"]{--pipe-color:#bda4ff}.wire.semantic[data-type="router_addressable"],.wire.semantic[data-type="router_agent_pane_ready"]{--pipe-color:#82aefe}.wire.semantic[data-type="router_addressable"] .line,.wire.semantic[data-type="router_agent_pane_ready"] .line{stroke-dasharray:2 6;opacity:.75}.wire .hit{stroke-width:20}.wire.active .line{stroke-width:5;opacity:1;filter:drop-shadow(0 0 7px currentColor)}
+  .map-node{min-height:66px;border-color:#4b7086;border-radius:11px;background:#14283a;color:var(--ink);box-shadow:0 8px 24px #0003}
+  .map-node:hover{transform:none;background:#1b3b50;border-color:#4cdbf0}
+  .map-node.active{outline-color:var(--focus)}.map-node.host{background:#183348;border-color:#5aa7b9}.map-node.session{background:#122638;border-color:#4b7086}.map-node.session.assigned{border-left:4px solid #b5e87b}.map-node.session.unassigned{border-left:4px solid #f7c872}.map-node.session.uncertain{border-left:4px solid #8ca0ad}
+  .map-node.stale,.map-node.partial-source{border-style:dashed;border-color:#f7c872}.map-node.stale em,.map-node.partial-source em{color:#ffd89b}.wire.stale .line{stroke:#f7c872!important;stroke-dasharray:4 6!important}.edge-tag.stale{border-style:dashed;border-color:#f7c872;color:#ffd89b}.stage.snapshot-stale .map-node{border-style:dashed}.stage.snapshot-stale .wire .line{stroke-dasharray:4 6}.stage.snapshot-stale .edge-tag{border-style:dashed}
+  .map-node.pane{background:#14283a;border-color:#4b7086}.map-node.resource{background:#14263b;border-color:#60728e}.map-node.resource.chat{background:#33203d;border-color:#b462a8}
+  .map-node .icon{background:#123244;color:#4cdbf0}.map-node.pane .icon{background:#263a35;color:#b5e87b}.map-node.resource .icon{background:#2a2843;color:#bda4ff}.map-node.resource.chat .icon{color:#fc80dc}
+  .map-node small{color:#a1cbdc}.map-node em{color:#a5bdcc}
+  .edge-tag{background:#102b3e;border-color:#567a8d;border-radius:7px;color:#effbff;box-shadow:0 4px 14px #0005;line-height:1.2;white-space:normal}.edge-tag.computed{border-style:dotted;color:#b6d1ff;opacity:.9}
+  .desktop-connections{flex:none;background:#0c1b2a;border-bottom:1px solid var(--line);padding:0 15px}.desktop-connections summary{cursor:pointer;color:#cde7f4;font-size:10px;font-weight:850;padding:7px 2px}.desktop-connections .connection-list{grid-template-columns:repeat(2,minmax(0,1fr));max-height:150px;overflow:auto;padding:0 0 9px}.desktop-connections .connection-list button{background:#142a3b;border-color:#405d73;color:#effbff}
+  .map-empty{background:#091724}.map-empty .face{color:#4cdbf0}.map-empty p{color:var(--muted)}
+  .inspector{height:100%;min-height:0;position:static;overflow:auto;background:#0d1a28;border-left:1px solid var(--line)}
+  .inspector-body{padding:20px}.inspect-icon{background:#17364b;color:#4cdbf0}.inspect-kicker{color:#4cdbf0}.inspect-title{font-size:23px}.inspect-desc{color:#b4cbd7}
+  .facts div{border-top-color:#304c63}.facts dt{color:#a4c3d3}.facts dd{color:#eef9ff}.fact-unknown{color:#f7c872!important}.fact-stale{color:#f4c7a0!important}.inspect-note{color:#a5bdcc}
+  .mobile-map{background:#0a1927}.mobile-tree button,.connection-list button{background:#13283a;border-color:#38576c;color:#ebf8ff}.mobile-tree button:hover,.connection-list button:hover{background:#1a3c50;border-color:#4cdbf0}.mobile-tree button small,.connection-list button small{color:#a5bdcc}.mobile-tree ol{border-left-color:#46677a}.connection-list button b span{color:#bda4ff}
+  .all-tree{flex:1;overflow:auto;padding:18px 24px;background-color:#091724;background-image:linear-gradient(rgba(87,131,158,.1) 1px,transparent 1px),linear-gradient(90deg,rgba(87,131,158,.1) 1px,transparent 1px);background-size:28px 28px}
+  .all-tree-intro{display:flex;gap:10px;align-items:baseline;margin-bottom:16px}.all-tree-intro strong{font-size:17px}.all-tree-intro span{color:var(--muted);font-size:11px}.all-tree>.mobile-tree{max-width:650px}.all-tree .mobile-tree ol{margin-left:20px}
+  .stage.all-mode .zoom-controls{display:none}
+  .foot{display:none}
+  @media(min-width:781px) and (max-width:1360px){.layout{grid-template-columns:200px minmax(0,1fr)}.roster{grid-column:1;grid-row:1}.stage{grid-column:2;grid-row:1}.inspector{display:none;position:fixed;z-index:30;top:auto;right:12px;bottom:12px;width:min(420px,calc(100vw - 225px));height:min(55vh,500px);min-height:0;overflow:auto;border:2px solid #4cdbf0;border-radius:12px;box-shadow:0 15px 55px #000c}.inspector.is-open{display:block}.inspector .inspect-close{display:inline-block}}
+  @media(min-width:781px) and (max-width:1050px){.layout{display:flex;flex-direction:column;height:auto}.roster{width:100%;height:auto;max-height:128px;overflow:hidden;border-right:0;border-bottom:1px solid var(--line)}.roster-list{display:flex;max-height:60px;overflow:auto}.roster-item{min-width:170px}.stage{width:100%;height:calc(100vh - 295px);min-height:490px}.inspector{width:min(420px,calc(100vw - 24px))}}
+  @media(max-width:780px){.mast{align-items:flex-start}.hero{padding:12px 15px}.hero h1{font-size:21px}.hero p{font-size:11px}.toolbar{padding:8px 14px}.layout{display:flex;flex-direction:column;height:auto;min-height:calc(100vh - 182px)}.roster{width:100%;height:auto;max-height:220px;border-right:0;border-bottom:1px solid var(--line)}.stage{width:100%;height:auto;min-height:490px}.inspector{width:100%;height:auto;min-height:260px;border-left:0;border-top:1px solid var(--line)}.diagram-scroll{display:none}.stage.diagram-open .diagram-scroll{display:block;height:470px;flex:none}.stage.diagram-open .edge-tags{display:none}.stage:not(.diagram-open) #all-lines,.stage:not(.diagram-open) .zoom-controls{display:none}.stage .legend{display:none}.desktop-connections{display:none}.mobile-map{display:block}.connection-route{grid-template-columns:minmax(0,1fr);justify-items:stretch;gap:3px}.connection-route-arrow{height:19px;line-height:19px;font-size:0;pointer-events:none}.connection-route-arrow::after{content:"↓";font-size:18px}.connection-endpoint{font-size:11px}.all-tree{max-height:500px}.roster-list{grid-template-columns:repeat(2,minmax(0,1fr))}.stage-actions{width:auto}.stamp{width:100%}}
+  .creator{width:min(650px,calc(100vw - 24px));max-height:min(850px,calc(100dvh - 24px));padding:0;border:1px solid #5a8195;border-radius:16px;background:#0d1a28;color:#ebf8ff;box-shadow:0 28px 95px #000b;overflow:auto}
+  .creator::backdrop{background:#020912d9;backdrop-filter:blur(4px)}
+  .creator-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:20px 22px;border-bottom:1px solid #35546a;background:#112438}
+  .creator-head h2{font-size:24px;letter-spacing:-.04em;margin:3px 0 3px}.creator-head p{margin:0;color:#aec9d8;font-size:12px}
+  .creator-body{padding:20px 22px 23px}.creator-context{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:0 0 18px}
+  .creator-context div,.creator-diff div{padding:10px 11px;background:#12283a;border:1px solid #36566d;border-radius:8px;min-width:0}
+  .creator-context dt,.creator-diff dt{font-size:10px;color:#a4c8d9;text-transform:uppercase;letter-spacing:.09em;font-weight:800}.creator-context dd,.creator-diff dd{margin:3px 0 0;overflow-wrap:anywhere;font-size:13px}
+  .creator-step{display:flex;align-items:center;gap:9px;margin:0 0 10px;font-size:14px;font-weight:850}.creator-step span{width:24px;height:24px;display:grid;place-items:center;border-radius:100%;background:#27465b;color:#bce7f5;font-size:11px}
+  .creator-field{display:grid;gap:6px;margin:0 0 13px}.creator-field label{font-size:12px;font-weight:800;color:#e2f2fa}.creator-field input,.creator-field select,.creator-field textarea{width:100%;border:1px solid #52718a;border-radius:8px;background:#091724;color:#ebf8ff;padding:10px 11px}.creator-field textarea{min-height:72px;resize:vertical}.creator-field small{color:#a9c3d1;font-size:11px}
+  .creator-message{padding:10px 12px;border:1px solid #946d4a;background:#382c23;color:#ffdda9;border-radius:8px;font-size:12px;margin:0 0 14px}.creator-message.good{border-color:#4d8e8d;background:#17353d;color:#b6eced}
+  .creator-review{border-top:1px solid #35546a;margin-top:17px;padding-top:17px}.creator-review h3{font-size:15px;margin:0 0 6px}.creator-review p{font-size:11px;color:#b0cad7;margin:0 0 12px}
+  .creator-diff{display:grid;gap:7px;margin:0 0 15px}.creator-diff div{display:grid;grid-template-columns:135px 1fr;gap:8px}.creator-diff dt{align-self:center}.creator-diff dd{margin:0}.creator-diff .added{color:#b9ef88}
+  .creator-code{display:block;width:100%;padding:11px;white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid #48677d;border-radius:8px;background:#071522;color:#daf2fb;font:11px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;margin:6px 0 10px;user-select:all}
+  .creator-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:15px}.creator-actions .aside{margin-left:auto;color:#a8c0cb;font-size:11px}
+  .creator .close{font-size:20px;line-height:1;padding:5px 10px}
+  .map-node.session.planned{box-shadow:inset 0 0 0 1px #b5e87b,0 8px 24px #0003}.roster-item.planned .name::after{content:" · planned";color:#b5e87b;font-size:10px;font-weight:700}
+  .map-node.resource.agent{border-color:#88b978;background:#1d342d}.map-node.resource.agent .icon{color:#b5e87b;background:#29443b}
+  .wire.semantic[data-type="planned_binding"] .line{stroke:#b5e87b;stroke-dasharray:7 5}.wire.semantic[data-type="verified_binding"] .line{stroke:#b5e87b;stroke-width:4}
+  .wire.semantic[data-type="occupies"] .line{stroke:#4cdbf0;stroke-width:4}.wire.semantic[data-type="work_lease"] .line{stroke:#f7c872;stroke-dasharray:9 4}
+  .wire.semantic[data-type="path_claim"] .line{stroke:#f7c872;stroke-dasharray:3 5}.map-node.resource.path-claim{border-color:#ad8651;background:#312a25}.map-node.resource.path-claim .icon{color:#f7c872;background:#443522}
+  .layer-bar{display:flex;align-items:center;gap:10px;padding:9px 13px;border-bottom:1px solid var(--line);background:#0c1b2a;min-width:0}
+  .layer-bar>span{flex:none;color:#8db2c4;font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+  .layer-tabs{display:flex;gap:5px;min-width:0;overflow-x:auto;scrollbar-color:#466981 transparent;padding:2px 1px 5px;white-space:nowrap}
+  .layer-tabs button{flex:none;border:1px solid #3a576c;border-radius:7px;background:#12283a;color:#c1d9e5;padding:6px 9px;font-size:11px;font-weight:800}
+  .layer-tabs button:hover{border-color:#4cdbf0}.layer-tabs button[aria-pressed="true"]{background:#225069;border-color:#4cdbf0;color:#e9fcff}
+  .layer-tabs button .layer-number{color:#8db5c8;margin-right:5px}
+  .layer-view{flex:1;min-height:0;overflow:auto;padding:20px clamp(14px,3vw,30px);background-color:#091724;background-image:linear-gradient(rgba(87,131,158,.1) 1px,transparent 1px),linear-gradient(90deg,rgba(87,131,158,.1) 1px,transparent 1px);background-size:28px 28px}
+  .layer-intro{max-width:940px;display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin:0 auto 18px}
+  .layer-intro h3{font-size:22px;line-height:1.1;letter-spacing:-.045em;margin:3px 0 7px}.layer-intro p{max-width:690px;margin:0;color:#b1cbd8;font-size:12px;line-height:1.55}
+  .layer-depth{flex:none;padding:5px 8px;border:1px solid #44677b;border-radius:6px;color:#9ed9e8;font-size:10px;font-weight:800}
+  .layer-body{max-width:940px;margin:auto}.layer-section{margin:0 0 22px}.layer-section h4{margin:0 0 9px;color:#b7d9e8;font-size:11px;letter-spacing:.12em;text-transform:uppercase}
+  .overview-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,.65fr) minmax(0,1fr) minmax(120px,.65fr) minmax(0,1fr);align-items:center;gap:8px;margin:22px 0 20px}
+  .layer-object{display:flex;flex-direction:column;align-items:flex-start;gap:5px;width:100%;min-height:112px;text-align:left;padding:15px;border:1px solid #4a6d82;border-radius:13px;background:#142b3e;color:#eaf8ff;box-shadow:0 10px 22px #0002}
+  .layer-object:hover{border-color:#4cdbf0;background:#1a3c53}.layer-object.active{outline:3px solid var(--focus);outline-offset:2px}.layer-object.unknown{border-style:dashed;border-color:#937850;background:#2b291f;color:#f8dbab;cursor:default}.layer-object .object-kind{color:#93c8da;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:900}.layer-object.unknown .object-kind{color:#efc47e}
+  .layer-object strong{font-size:17px;line-height:1.15;overflow-wrap:anywhere}.layer-object small{font-size:11px;color:#b0cbd8;line-height:1.4}.layer-object.unknown small{color:#e6cda4}.layer-object .object-more{margin-top:auto;color:#75e3ed;font-size:10px;font-weight:800}.layer-object.unknown .object-more{color:#f7c872}
+  .overview-pipe{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;color:#c9e8f1;min-width:0}
+  .overview-pipe .flow-arrow{display:block;width:100%;font-size:30px;line-height:1;color:#4cdbf0}.overview-pipe.reverse .flow-arrow{color:#fc80dc}.overview-pipe .flow-name{display:block;font-size:11px;font-weight:900;line-height:1.3}.overview-pipe .flow-payload{display:block;margin-top:3px;font-size:10px;line-height:1.35;color:#a7c0ce}.overview-pipe button{display:block;width:100%;border:0;background:none;color:inherit;padding:0;text-align:center;cursor:pointer}.overview-pipe button:hover .flow-name{text-decoration:underline}
+  .overview-pipe.unknown .flow-arrow{color:#f7c872}.overview-pipe.unknown .flow-name{color:#f7c872}
+  .layer-note{padding:12px 14px;border:1px solid #36566d;border-radius:9px;background:#102538;color:#b9d3df;font-size:11px;line-height:1.5}.layer-note strong{color:#e5f8ff}
+  .layer-rows{display:grid;gap:8px}.layer-flow{display:grid;grid-template-columns:minmax(125px,1fr) minmax(170px,1.1fr) minmax(125px,1fr);gap:8px;align-items:stretch}
+  .layer-flow .layer-object{min-height:96px}.layer-flow .layer-object strong{font-size:14px}.layer-flow .layer-object small{font-size:10px}
+  .flow-center{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px;width:100%;padding:9px;border:1px solid #507c91;border-radius:9px;background:#133147;color:#dbf4fb;text-align:center;cursor:pointer}
+  .flow-center:hover{border-color:#4cdbf0;background:#1a435a}.flow-center.active{outline:3px solid var(--focus);outline-offset:2px}.flow-center strong{font-size:12px;line-height:1.3}.flow-center .flow-direction{font-size:22px;line-height:1;color:#4cdbf0}.flow-center small{color:#afd0df;font-size:10px;line-height:1.4}.flow-center em{color:#e9bf89;font-style:normal;font-size:10px}
+  .layer-empty{border:1px dashed #87734f;border-radius:11px;padding:15px;background:#29281f;color:#f4d7a5;font-size:12px;line-height:1.5}.layer-empty strong{display:block;margin-bottom:4px;color:#ffdfae}
+  .responsibility-list{margin:0;padding:0 0 0 19px;color:#d7edf5;font-size:12px;line-height:1.5}.responsibility-list li{margin:6px 0}.responsibility-source{font-size:10px;color:#a6c4d3;margin:9px 0 0}.responsibility-stale{color:#f4ce98}
+  .scope-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}.scope-card{min-width:0;padding:11px 12px;border:1px solid #3d6075;border-radius:10px;background:#132b3d}.scope-card strong{display:block;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#9cdae8}.scope-card p{margin:7px 0;font-size:12px;line-height:1.45;color:#effaff;overflow-wrap:anywhere}.scope-card small{display:block;font-size:10px;line-height:1.4;color:#a8c5d3;overflow-wrap:anywhere}.scope-card.mismatch{border-color:#b78847;background:#382b1d}.scope-card.mismatch strong,.scope-card.mismatch small{color:#ffd395}.scope-note{font-size:11px;color:#b8ced8;margin:9px 0 0}
+  .responsibility-summary{display:block;width:100%;margin:0 0 18px;padding:15px 17px;text-align:left;border:1px solid #577b91;border-left:4px solid #4cdbf0;border-radius:11px;background:#132c3d;color:#eaf8ff}.responsibility-summary:hover,.responsibility-item:hover{border-color:#4cdbf0;background:#1b3a50}.responsibility-summary.active,.responsibility-item.active{outline:3px solid var(--focus);outline-offset:2px}.responsibility-summary .scope-kicker,.responsibility-item .scope-kicker{display:block;color:#9cdae8;font-size:10px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}.responsibility-summary strong{display:block;margin:5px 0;font-size:16px;line-height:1.3}.responsibility-summary .scope-mission{display:block;color:#eaf8ff;font-size:13px;line-height:1.45;overflow-wrap:anywhere}.responsibility-summary .scope-provenance,.responsibility-item small{display:block;margin-top:8px;color:#a8c9d8;font-size:10px;line-height:1.4;overflow-wrap:anywhere}
+  .responsibility-summary.stale,.responsibility-item.stale{border-style:dashed;border-color:#b58a4c}.responsibility-summary.stale .scope-kicker,.responsibility-item.stale .scope-kicker{color:#ffd395}
+  .responsibility-groups{display:grid;gap:16px;margin:0 0 21px}.responsibility-group h4{margin:0 0 7px;color:#b7d9e8;font-size:11px;letter-spacing:.12em;text-transform:uppercase}.responsibility-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px}.responsibility-item{display:block;width:100%;min-width:0;padding:12px 13px;text-align:left;border:1px solid #41647a;border-radius:9px;background:#132b3d;color:#eaf8ff}.responsibility-item strong{display:block;margin-top:5px;font-size:12px;font-weight:650;line-height:1.45;overflow-wrap:anywhere}.responsibility-route{display:block;margin-top:5px;color:#86e4ef;font-size:11px;font-weight:850;line-height:1.35;overflow-wrap:anywhere}.responsibility-decision{display:block;margin-top:7px;color:#ffd395;font-size:11px;font-weight:850;line-height:1.35}.responsibility-item[data-decision="approved"] .responsibility-decision{color:#b5e87b}.responsibility-item[data-decision="rejected"] .responsibility-decision{color:#fc9fb4}.responsibility-item[data-kind="approval_gate"],.responsibility-item[data-kind="boundary"]{border-left:3px solid #f7c872}.responsibility-item[data-kind="completion_check"],.responsibility-item[data-kind="completion_evidence"]{border-left:3px solid #b5e87b}.responsibility-item[data-outcome="failed"],.responsibility-item[data-outcome="blocked"]{border-left-color:#f7c872}.responsibility-item[data-outcome="partial"],.responsibility-item[data-outcome="pending"]{border-left-color:#82aefe}.responsibility-caveat{margin:0;padding:10px 12px;border:1px dashed #806b49;border-radius:8px;background:#26271f;color:#efd0a0;font-size:11px;line-height:1.45}
+  .dqr-topology-area{container-type:inline-size;margin:18px auto 20px}
+  .dqr-topology{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 94px minmax(0,1fr) 94px minmax(0,1fr);grid-template-rows:auto 15px minmax(172px,auto);align-items:stretch;min-width:0}
+  .dqr-node{position:relative;z-index:2;min-width:0}.dqr-node .layer-object{height:100%;min-height:172px}.dqr-node-requester{grid-area:1 / 1}.dqr-node-requester .layer-object{height:auto;min-height:100px;border-left:3px dashed #f7c872}.dqr-node-requester .layer-object strong{font-size:14px}.dqr-node-requester .layer-object small{color:#f7d79e}
+  .dqr-node-chat{grid-area:3 / 1}.dqr-node-chat .layer-object{border-color:#a95b9f}.dqr-node-chat .object-kind{color:#fc80dc}
+  .dqr-node-session{grid-area:3 / 3}.dqr-node-session .layer-object{border:2px solid #4cdbf0;background:#153246;box-shadow:inset 0 0 0 3px #0c2635,0 0 0 1px #265970}.dqr-node-session .object-kind{color:#8fe8f3}
+  .dqr-node-stack{grid-area:3 / 5}.dqr-stack-object{display:flex;flex-direction:column;gap:8px;min-height:172px;height:100%;padding:14px;border:1px solid #8b76c2;border-radius:13px;background:#1c2942;color:#ebf8ff;box-shadow:0 10px 22px #0002}.dqr-stack-object.unknown{border-style:dashed;border-color:#937850;background:#2b291f}.dqr-stack-object .object-kind{color:#c7b5ff;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:900}.dqr-stack-object strong{font-size:16px;line-height:1.2;overflow-wrap:anywhere}.dqr-stack-object p{margin:0;color:#d7dcf2;font-size:11px;line-height:1.4;overflow-wrap:anywhere}.dqr-stack-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto}.dqr-stack-actions button{padding:5px 7px;border:1px solid #7c72ad;border-radius:6px;background:#2b3551;color:#e9e4ff;font-size:10px;font-weight:800;text-align:left}.dqr-stack-actions button:hover{border-color:#d4c3ff;background:#3b4364}.dqr-stack-actions button.active{outline:3px solid var(--focus);outline-offset:1px}
+  .dqr-topology-svg{position:absolute;inset:0;z-index:1;width:100%;height:100%;overflow:visible;pointer-events:none}.dqr-wire{cursor:pointer}.dqr-wire[data-dqr-wire="chat"]{--wire:#fc80dc}.dqr-wire[data-dqr-wire="workspace"]{--wire:#bda4ff}.dqr-wire .dqr-line{fill:none;stroke:var(--wire);stroke-width:4;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.dqr-wire.declared .dqr-line{stroke-dasharray:10 7}.dqr-wire.computed .dqr-line{stroke-dasharray:2 7}.dqr-wire.stale .dqr-line{stroke:#f7c872;stroke-dasharray:4 7}.dqr-wire .dqr-hit{fill:none;stroke:transparent;stroke-width:24;pointer-events:stroke}.dqr-wire:hover .dqr-line,.dqr-wire.active .dqr-line{stroke-width:6;filter:drop-shadow(0 0 6px var(--wire))}.dqr-wire:focus-visible .dqr-line{stroke-width:6;filter:drop-shadow(0 0 6px var(--focus))}.dqr-port{fill:#0c1b2a;stroke:var(--wire);stroke-width:3;pointer-events:none}
+  .dqr-wire-label{position:absolute;z-index:3;min-width:80px;max-width:112px;transform:translate(-50%,-100%);padding:5px 3px;border:0;border-radius:6px;background:#091724;color:#dbeff8;text-align:center;cursor:pointer}.dqr-wire-label strong{display:block;color:var(--wire);font-size:10px;line-height:1.2}.dqr-wire-label.stale strong{color:#f7c872}.dqr-wire-label small{display:block;margin-top:2px;color:#a8c8d5;font-size:9px;line-height:1.2}.dqr-wire-label:hover strong{text-decoration:underline}.dqr-wire-label.active{outline:3px solid var(--focus);outline-offset:1px}
+  @container (max-width:759px){.dqr-topology{grid-template-columns:minmax(0,1fr);grid-template-rows:auto 14px auto 94px auto 94px auto;max-width:460px;margin:auto}.dqr-node-requester{grid-area:1 / 1}.dqr-node-chat{grid-area:3 / 1}.dqr-node-session{grid-area:5 / 1}.dqr-node-stack{grid-area:7 / 1}.dqr-node .layer-object,.dqr-stack-object{min-height:112px}.dqr-node-requester .layer-object{min-height:90px}.dqr-wire-label{min-width:0;max-width:calc(100% - 75px);transform:translate(0,-50%);text-align:left;padding:5px 7px}.dqr-wire-label strong{font-size:11px}.dqr-wire-label small{font-size:10px}}
+  .layer-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:8px}.layer-cards .layer-object{min-height:100px}
+  .layer-actions{display:flex;justify-content:space-between;gap:8px;margin-top:22px}.layer-actions .btn{font-size:11px}.inspect-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.inspect-close{display:none}.inspect-deeper{margin-top:13px}
+  .roster-toggle{display:none}
+  .stage.layer-mode .diagram-scroll,.stage.layer-mode .all-tree,.stage.layer-mode .mobile-map,.stage.layer-mode .legend{display:none!important}
+  @media(max-width:1150px){.overview-grid{grid-template-columns:minmax(0,1fr);max-width:420px;margin:14px auto}.overview-grid>.layer-object,.overview-grid>.overview-pipe{grid-column:1}.overview-pipe{min-height:65px}.overview-pipe .flow-arrow{height:29px;font-size:0}.overview-pipe .flow-arrow::after{content:"↑";font-size:30px}}
+  @media(max-width:780px){.layer-bar{display:block;padding:8px 11px}.layer-bar>span{display:block;margin-bottom:5px}.layer-view{min-height:390px;max-height:calc(100dvh - 285px);padding:15px 12px}.layer-intro{display:block}.layer-depth{display:inline-block;margin-top:10px}.overview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin:14px 0;max-width:none}.overview-grid>:nth-child(3){grid-column:1 / -1;grid-row:1}.overview-grid>:nth-child(2){grid-column:1;grid-row:2}.overview-grid>:nth-child(4){grid-column:2;grid-row:2}.overview-grid>:nth-child(1){grid-column:1;grid-row:3}.overview-grid>:nth-child(5){grid-column:2;grid-row:3}.overview-grid>:nth-child(2) .flow-arrow::after{content:"↓"}.overview-pipe{min-height:65px}.layer-flow{grid-template-columns:minmax(0,1fr);gap:4px}.flow-center{min-height:76px}.flow-center .flow-direction{height:24px;font-size:0}.flow-center .flow-direction::after{content:"↓";font-size:22px}.inspector{display:none;position:fixed;z-index:20;left:0;right:0;bottom:0;width:100%;height:auto;max-height:min(75dvh,650px);min-height:0;overflow:auto;border-top:2px solid #4cdbf0;box-shadow:0 -16px 50px #000b}.inspector.is-open{display:block}.inspect-close{display:inline-block}.inspector-body{padding:16px}.stage{min-height:0}.stage-head{gap:8px}.stage-actions{justify-content:flex-start}.layer-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.roster{max-height:none}.roster-list{display:none}.roster.is-open .roster-list{display:grid;max-height:220px;overflow:auto}.roster-toggle{display:inline-block;float:right;margin-top:-31px}.roster .panel-head{padding:11px 14px}.roster .panel-head p{margin-right:115px}}
+  @media(max-width:440px){.hero{padding:7px 12px}.hero h1{font-size:19px}.hero p{display:none}.status-pill{margin-top:5px;padding:5px 9px}.toolbar{padding:6px 11px}.stamp{display:none}.layer-cards,.scope-grid,.responsibility-grid{grid-template-columns:minmax(0,1fr)}.layer-intro h3{display:none}.layer-intro p{font-size:11px}.stage-head{display:block;padding:8px 12px}.stage-actions{margin-top:8px}.roster .panel-head{position:relative;padding-right:142px}.roster .panel-head p{margin-right:0}.roster-toggle{position:absolute;right:12px;bottom:11px;float:none;margin:0}}
+  @media(max-width:620px){.creator{width:100vw;max-height:100dvh;height:100dvh;border:0;border-radius:0}.creator-head,.creator-body{padding-left:17px;padding-right:17px}.creator-context{grid-template-columns:1fr 1fr}.creator-diff div{grid-template-columns:1fr;gap:2px}}
+  .guide-toggle{position:fixed;z-index:29;left:18px;bottom:18px;display:flex;align-items:center;gap:9px;border:1px solid #67d4de;border-radius:999px;background:#123447;color:#eaffff;padding:9px 15px;box-shadow:0 9px 32px #0009;font-weight:850}
+  .guide-toggle:hover{background:#1b5060}.guide-toggle .guide-dot,.guide-head .guide-dot{display:grid;place-items:center;width:27px;height:27px;flex:none;border-radius:50%;background:#4cdbf0;color:#092332;font-size:18px;box-shadow:0 0 0 3px #4cdbf03d}
+  .guide-panel{position:fixed;z-index:30;left:18px;bottom:76px;width:min(390px,calc(100vw - 36px));max-height:min(650px,calc(100dvh - 100px));display:flex;flex-direction:column;border:1px solid #5baabb;border-radius:15px;background:#0e2131;color:#eaf8ff;box-shadow:0 18px 60px #000b;overflow:hidden}
+  .guide-head{display:flex;align-items:center;gap:10px;padding:13px 14px;border-bottom:1px solid #35596d;background:#133045}.guide-head strong{display:block;font-size:13px}.guide-head small{display:block;color:#afcad6;font-size:10px}.guide-head button{margin-left:auto;border:0;background:transparent;color:#d9f6ff;font-size:23px;line-height:1;padding:3px 7px}
+  .guide-log{min-height:120px;max-height:350px;overflow:auto;padding:12px;display:grid;align-content:start;gap:10px}.guide-entry{max-width:95%;border:1px solid #385c71;border-radius:10px;padding:9px 11px;background:#142e42;font-size:12px;line-height:1.5;overflow-wrap:anywhere}.guide-entry.user{justify-self:end;border-color:#5b8d9f;background:#1d4053}.guide-entry p{margin:0}.guide-entry small{display:block;margin-top:7px;color:#a4c2d1;font-size:10px}.guide-entry button{margin-top:8px;padding:5px 8px;border:1px solid #75beca;border-radius:6px;background:#204b5a;color:#efffff;font-weight:800;font-size:11px}
+  .guide-sources{margin-top:8px;border-top:1px solid #345366;padding-top:6px}.guide-sources summary{cursor:pointer;color:#aeeaf2;font-size:10px;font-weight:850}.guide-sources span{display:block;margin-top:5px;color:#b4ceda;font-size:10px;overflow-wrap:anywhere}
+  .guide-prompts{display:flex;gap:5px;flex-wrap:wrap;padding:0 12px 9px}.guide-prompts button{border:1px solid #3f697b;border-radius:999px;background:#15354a;color:#d6eef7;padding:5px 8px;font-size:10px}.guide-prompts button:hover{border-color:#4cdbf0}
+  .guide-form{display:flex;gap:6px;padding:10px;border-top:1px solid #35596d}.guide-form input{min-width:0;flex:1;border:1px solid #456e81;border-radius:8px;background:#081b2b;color:#ecfaff;padding:9px 10px}.guide-form button{border:0;border-radius:8px;background:#4cdbf0;color:#092332;padding:8px 12px;font-weight:850}.guide-form button:disabled{opacity:.6}
+  .guide-spark{position:fixed;z-index:35;pointer-events:none;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:#4cdbf0;color:#082332;box-shadow:0 0 0 5px #4cdbf044,0 0 20px #4cdbf0;font-size:17px}
+  @media(max-width:780px){.guide-toggle{left:auto;right:12px;bottom:12px}.guide-panel{left:10px;right:10px;bottom:66px;width:auto;max-height:calc(100dvh - 88px)}}
+</style>
+</head>
+<body>
+<header class="mast"><a class="brand" href="/fleet-map"><span class="brand-mark" aria-hidden="true">⌂</span><span>Wideband <small>TERMINAL NETWORK</small></span></a><nav aria-label="Pages"><a class="nav active" href="/fleet-map" aria-current="page">Terminal map</a></nav></header>
+<main>
+  <div class="hero"><div><span class="eyebrow">Tailnet preview · read only</span><h1>Live fleet layers.</h1><p>Start with one session and follow the sourced plumbing. Open a layer for more depth; select any object or directional pipe to inspect its evidence in place.</p></div><span class="status-pill" id="status" data-state="source_unavailable" aria-live="polite">◌ Connecting</span></div>
+  <div class="notice" id="notice" role="status" hidden></div>
+  <div class="toolbar"><label><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Find a session" aria-label="Find a session"></label><button class="btn primary" id="new-agent" type="button">＋ New Agent</button><button class="btn" id="refresh" type="button">↻ Refresh</button><button class="btn" id="demo" type="button">✦ Try synthetic tour</button><span class="stamp" id="stamp">Waiting for a snapshot</span></div>
+  <div class="layout">
+    <aside class="panel roster" id="roster-panel" aria-label="Terminal branches"><div class="panel-head"><span class="eyebrow">Branch index</span><h2>Sessions <span id="session-count"></span></h2><p id="roster-caption">Pick a branch to zoom into its terminals.</p><button class="btn roster-toggle" id="roster-toggle" type="button" aria-expanded="false" aria-controls="roster">Browse sessions</button></div><div class="roster-list" id="roster"></div></aside>
+    <section class="panel stage" id="stage" aria-labelledby="stage-title"><div class="stage-head"><div><span class="eyebrow">Infrastructure · follow the evidence</span><h2 id="stage-title">Fleet layers</h2><p id="stage-subtitle">A simple overview, then the real stack.</p></div><div class="stage-actions" id="terminal-actions" hidden><button class="btn" id="all-terminals" type="button" aria-pressed="false">All terminals</button><button class="btn" id="all-lines" type="button" aria-pressed="false">Show computed routes</button><div class="zoom-controls" role="group" aria-label="Diagram zoom"><button class="btn" id="zoom-out" type="button" aria-label="Zoom out">−</button><output id="zoom-level" aria-live="polite">100%</output><button class="btn" id="zoom-in" type="button" aria-label="Zoom in">+</button><button class="btn" id="zoom-fit" type="button" aria-label="Fit diagram to width">Fit</button></div></div></div>
+      <div class="layer-bar"><span>Show layer</span><div class="layer-tabs" id="layer-tabs" role="group" aria-label="Infrastructure layers"></div></div>
+      <div class="legend" aria-label="Diagram key"><span><b>│</b> Contains</span><span><b class="purple">→</b> Declared relation</span><span><b class="blue">⋯</b> On-disk routing + tmux · delivery unverified</span><span><b class="rose">◇</b> Dashed amber · last known</span></div>
+      <details class="desktop-connections" id="desktop-connections" hidden><summary id="desktop-connections-summary">Named connections</summary><div class="connection-list" id="desktop-connection-list"></div></details>
+      <div class="layer-view" id="layer-view" aria-live="polite"></div>
+      <div class="diagram-scroll" id="diagram-scroll" tabindex="0" aria-label="Scrollable terminal diagram"><div class="diagram" id="diagram"><svg id="wires" aria-label="Terminal hierarchy and typed connections"></svg><div class="node-layer" id="node-layer"></div><div class="edge-tags" id="edge-tags"></div></div></div>
+      <div class="all-tree" id="all-tree" hidden></div>
+      <div class="mobile-map" id="mobile-map"><div class="mobile-head"><h3>Terminals, top to bottom</h3><button class="btn" type="button" id="diagram-toggle" aria-expanded="false" aria-controls="diagram-scroll">Full graph ↗</button></div><ol class="mobile-tree" id="mobile-tree"></ol><h4>Relations and checks</h4><div class="connection-list" id="connection-list"></div></div>
+      <div class="map-empty" id="empty" hidden><span class="face" aria-hidden="true">◌</span><h2>No snapshot yet</h2><p>The local snapshot source is unavailable. Check the collector or try the synthetic tour.</p><button class="btn primary" type="button" id="empty-demo">Try synthetic tour</button></div>
+    </section>
+    <aside class="panel inspector" id="inspector" aria-labelledby="inspect-title"><div class="inspector-body"><div class="inspect-top"><span class="inspect-icon" id="inspect-icon" aria-hidden="true">⌂</span><button class="btn inspect-close" id="inspect-close" type="button" aria-label="Close details">× Close</button></div><span class="inspect-kicker" id="inspect-type">Select a node or pipe</span><h2 class="inspect-title" id="inspect-title" tabindex="-1">Inspect the network</h2><p class="inspect-desc" id="inspect-desc">The chart keeps declared identity separate from the process seen in a pane.</p><dl class="facts" id="facts"></dl><button class="btn inspect-deeper" id="inspect-deeper" type="button" hidden>Open next layer →</button><div class="creator-actions" id="inspector-actions" hidden><button class="btn primary" id="inspector-new-agent" type="button">＋ Adopt this terminal</button></div><p class="inspect-note">Pane text and messages are never read for this map. A process name does not prove an agent identity.</p></div></aside>
+  </div>
+  <p class="foot"><strong>How to read it:</strong> solid stems contain windows and panes; arrows show directed named relationships. Dotted blue pipes are computed eligibility at collection time, not delivered messages. Select a pipe to inspect its source and age.</p>
+</main>
+<button class="guide-toggle" id="guide-toggle" type="button" aria-expanded="false" aria-controls="guide-panel"><span class="guide-dot" aria-hidden="true">✦</span> Ask the map guide</button>
+<section class="guide-panel" id="guide-panel" aria-label="Live network guide" hidden>
+  <div class="guide-head"><span class="guide-dot" aria-hidden="true">✦</span><div><strong>Network guide</strong><small>Current redacted snapshot · model when available</small></div><button id="guide-close" type="button" aria-label="Close network guide">×</button></div>
+  <div class="guide-log" id="guide-log" role="log" aria-live="polite" aria-relevant="additions text"><div class="guide-entry"><p>Ask about a layer, session, or route. I can take you to its place on this map and open the evidence.</p></div></div>
+  <div class="guide-prompts"><button type="button" data-guide-prompt="Explain this layer">This layer</button><button type="button" data-guide-prompt="Trace this session's chat route">Trace chat route</button><button type="button" data-guide-prompt="What does assigned mean here?">Assigned role</button></div>
+  <form class="guide-form" id="guide-form"><input id="guide-question" type="text" maxlength="600" autocomplete="off" aria-label="Ask about the terminal network" placeholder="Ask about a node, layer, or route"><button id="guide-send" type="submit">Ask</button></form>
+</section>
+<dialog class="creator" id="creator" aria-labelledby="creator-title">
+  <div class="creator-head"><div><span class="eyebrow">Character creator · planned binding</span><h2 id="creator-title">Adopt this terminal</h2><p>The draft stays in your browser. Apply happens through the registry CLI.</p></div><button class="btn close" id="creator-close" type="button" aria-label="Close creator">×</button></div>
+  <div class="creator-body">
+    <h3 class="creator-step"><span>1</span> Choose the terminal</h3>
+    <dl class="creator-context" id="creator-context"></dl>
+    <div class="creator-message" id="creator-status" role="status"></div>
+    <h3 class="creator-step"><span>2</span> Name the planned agent</h3>
+    <div class="creator-field"><label for="creator-agent-id">Stable agent ID</label><input id="creator-agent-id" type="text" spellcheck="false" autocomplete="off" maxlength="64" placeholder="e.g. agent-moss"><small>This ID is chosen explicitly. A pane process or session name never verifies an agent.</small></div>
+    <h3 class="creator-step"><span>3</span> Set the identity card</h3>
+    <div class="creator-field"><label for="creator-role">Card action</label><select id="creator-role"><option value="preserve">Preserve existing card exactly</option><option value="assigned">Author assigned role</option><option value="unassigned">Author unassigned role</option></select><small>The card is the authority for role and boundaries. Preserving it never rewrites its prose.</small></div>
+    <div id="creator-card-fields">
+      <div class="creator-field"><label for="creator-owner">Owner</label><input id="creator-owner" type="text" maxlength="120" autocomplete="off" placeholder="Operator or responsible team"><small>Required for an assigned role; do not use UNVERIFIED.</small></div>
+      <div class="creator-field" id="creator-assigned-concern"><label for="creator-concern">Concern / mission</label><input id="creator-concern" type="text" maxlength="160" autocomplete="off" placeholder="What this agent is responsible for"></div>
+      <div class="creator-field" id="creator-assigned-owns"><label for="creator-owns">Owns · one responsibility per line</label><textarea id="creator-owns" maxlength="2400" placeholder="Review incoming work\nMaintain the runbook"></textarea></div>
+      <div class="creator-field" id="creator-assigned-refuses"><label for="creator-refuses">Refuses · one boundary per line</label><textarea id="creator-refuses" maxlength="2400" placeholder="No external send without approval"></textarea></div>
+      <div class="creator-field"><label for="creator-approval">Approval rules · one per line</label><textarea id="creator-approval" maxlength="2400" placeholder="Ask before publishing"></textarea></div>
+      <div class="creator-field"><label for="creator-root">Workspace root</label><input id="creator-root" type="text" maxlength="400" autocomplete="off" placeholder="/absolute/path/to/workspace"><small id="creator-root-help">Required for a live-only session without a card or standard declaration. No path is sent to Fleetdeck.</small></div>
+    </div>
+    <div class="creator-review" id="creator-review" hidden>
+      <h3 class="creator-step"><span>4</span> Review the change</h3>
+      <p id="creator-review-note">The CLI dry run checks the complete registry and identity card before Apply. Chat routes are unchanged.</p>
+      <dl class="creator-diff" id="creator-diff"></dl>
+      <strong>Draft file</strong><code class="creator-code" id="creator-json"></code>
+      <strong>Run over your operator SSH session</strong><code class="creator-code" id="creator-commands"></code>
+      <p>If your browser renames or moves the downloaded file, replace the path in both commands with its actual saved path. Run the dry run first and inspect its output before copying Apply.</p>
+      <div class="creator-actions"><button class="btn primary" type="button" id="creator-download">Download draft JSON</button><button class="btn" type="button" id="creator-copy-dry">Copy dry-run</button><button class="btn" type="button" id="creator-copy-apply">Copy Apply</button><span class="aside">CLI Apply requires the pinned revision.</span></div>
+    </div>
+    <div class="creator-actions"><button class="btn primary" type="button" id="creator-build">Review draft</button><button class="btn" type="button" id="creator-cancel">Cancel</button></div>
+  </div>
+</dialog>
+<script>
+(function(){
+  "use strict";
+  var byId=function(id){return document.getElementById(id)};
+  var esc=function(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})};
+  var fixture={schema_version:"agent-fleet.snapshot.v1",collected_at:"2026-09-24T00:00:00Z",status:"demo",summary:{live_sessions:3,registry_revision:0},sources:[{id:"registry",status:"available",as_of:"2026-09-24T00:00:00Z"}],unknowns:[],nodes:[
+    {id:"host:sample",type:"host",label:"Sample device",parent_id:null,declared:true,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z"},
+    {id:"session:moss",type:"session",label:"Moss",parent_id:"host:sample",declared:true,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z",identity:{role:"assigned",card_present:true},runtime:{window_count:1}},
+    {id:"window:moss:1",type:"window",label:"Window 1",parent_id:"session:moss",declared:false,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z"},
+    {id:"pane:moss:%1",type:"pane",label:"Pane A",parent_id:"window:moss:1",declared:false,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z",process:{classification:"recognized_engine",display:"Claude Code",basis:"sample process"}},
+    {id:"session:pip",type:"session",label:"Pip",parent_id:"host:sample",declared:true,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z",identity:{role:"assigned",card_present:true},runtime:{window_count:1}},
+    {id:"window:pip:1",type:"window",label:"Window 1",parent_id:"session:pip",declared:false,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z"},
+    {id:"pane:pip:%2",type:"pane",label:"Pane A",parent_id:"window:pip:1",declared:false,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z",process:{classification:"recognized_engine",display:"Codex",basis:"sample process"}},
+    {id:"session:wisp",type:"session",label:"Wisp",parent_id:"host:sample",declared:null,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z",identity:{role:"unknown",card_present:false},runtime:{window_count:1}},
+    {id:"window:wisp:1",type:"window",label:"Window 1",parent_id:"session:wisp",declared:false,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z"},
+    {id:"pane:wisp:%3",type:"pane",label:"Pane A",parent_id:"window:wisp:1",declared:false,observed:true,source_refs:["synthetic"],observed_at:"2026-09-24T00:00:00Z",process:{classification:"shell",display:"Shell",basis:"sample process"}},
+    {id:"workspace:scratch",type:"workspace",label:"Scratch desk",parent_id:null,declared:true,observed:null,source_refs:["synthetic"],observed_at:null},
+    {id:"tool:review",type:"tool",label:"Source review",parent_id:null,declared:true,observed:null,source_refs:["synthetic"],observed_at:null},
+    {id:"channel:inbox",type:"channel",label:"Draft inbox",parent_id:null,declared:true,observed:null,source_refs:["synthetic"],observed_at:null}
+  ],edges:[
+    {id:"handoff:moss:pip",from:"session:moss",to:"session:pip",type:"handoff",evidence:"declared",source:"synthetic",freshness:{as_of:"2026-09-24T00:00:00Z",status:"sample"},display:"Moss → Pip"},
+    {id:"uses:moss:desk",from:"session:moss",to:"workspace:scratch",type:"uses_workspace",evidence:"declared",source:"synthetic",freshness:{as_of:"2026-09-24T00:00:00Z",status:"sample"},display:"Scratch desk"},
+    {id:"uses:moss:review",from:"session:moss",to:"tool:review",type:"uses_tool",evidence:"declared",source:"synthetic",freshness:{as_of:"2026-09-24T00:00:00Z",status:"sample"},display:"Source review"},
+    {id:"inbox:pip",from:"channel:inbox",to:"session:pip",type:"chat_routes_to",evidence:"declared",source:"synthetic",freshness:{as_of:"2026-09-24T00:00:00Z",status:"sample"},display:"Inbox → Pip"}
+  ]};
+  var data=null,demo=false,selectedSession=null,selectedKind="node",selectedId=null,requestSerial=0,allMode=false,showComputed=true,zoom=1,autoFitTerminal=true,activeLayer="overview",relationIndex={},expandedLayers={},dqrTopologyObserver=null;
+  var layerDefs=[
+    {id:"overview",name:"Overview",title:"One session, two sides",description:"Start with the session, the computer that runs it, and its configured contact point. A physical phone and message delivery require separate evidence."},
+    {id:"identity",name:"Identity",title:"Identity and responsibility",description:"A session name, identity card, registry agent, and current pane occupant are separate facts. Responsibilities appear only when the source exposes them."},
+    {id:"routing",name:"Routing",title:"Instructions and routes",description:"Follow configured ownership, target descriptions, and computed eligibility. Each arrow names what it represents; eligibility does not prove delivery."},
+    {id:"runtime",name:"Runtime",title:"Runtime and process",description:"The observed host contains a tmux session, windows, and panes. Foreground process recognition describes a pane, not its agent identity."},
+    {id:"capabilities",name:"Tools & skills",title:"Tools and skills",description:"Declared capabilities and observed use are different. A listed tool is not proof that the session invoked it."},
+    {id:"instructions",name:"Memory & MD",title:"Memory and instructions",description:"Identity cards, standards, and instruction files can guide a session. This map shows only inventoried metadata, not private file contents."},
+    {id:"services",name:"Services & APIs",title:"Services and APIs",description:"This layer shows source-backed service and API dependencies when the snapshot includes them."},
+    {id:"network",name:"Network",title:"Network and access",description:"Host reachability and explicit SSH or Tailscale routes appear here when inventoried. A chat endpoint is not a physical device."},
+    {id:"state",name:"Data & state",title:"Data and state",description:"Workspace claims, current leases, and declared handoff state are separate from all direct shell activity."},
+    {id:"deployment",name:"Deployment",title:"Deployment infrastructure",description:"Builds, release targets, and hosting appear only when a source supplies them."},
+    {id:"terminals",name:"Terminal detail",title:"Terminal detail",description:"Inspect the full tmux branch and its named relationships. Use the branch index to switch sessions."}
+  ];
+  var layerById=function(id){return layerDefs.find(function(l){return l.id===id})||layerDefs[0]};
+  var creatorDraft=null,creatorRevision=null,creatorFilename=null,creatorSessionId=null,creatorPaneId=null,creatorReturnFocus=null;
+  var nodeIndex=function(){var m={};if(data)data.nodes.forEach(function(n){m[n.id]=n});return m};
+  var childrenOf=function(id){return data?data.nodes.filter(function(n){return n.parent_id===id}):[]};
+  var sessions=function(){return data?data.nodes.filter(function(n){return n.type==="session"}).sort(function(a,b){return a.label.localeCompare(b.label)}):[]};
+  var nodeDisplayLabel=function(n){return n&&n.type==="chat"&&/^Bound chat → /.test(n.label)?"Bound chat channel":n?n.label:"Unknown"};
+  var nodeLabel=function(id){var n=nodeIndex()[id];return n?nodeDisplayLabel(n):id};
+  var age=function(value){if(!value)return "unknown";var d=Date.parse(value);if(!Number.isFinite(d))return value;var s=Math.max(0,Math.floor((Date.now()-d)/1000));return s<60?"just now":s<3600?Math.floor(s/60)+" min ago":s<86400?Math.floor(s/3600)+" h ago":Math.floor(s/86400)+" d ago"};
+  var when=function(value){if(!value)return "Unknown";if(/^\d{4}-\d{2}-\d{2}$/.test(value))return value;var d=new Date(value);return Number.isNaN(d.getTime())?value:d.toLocaleString()};
+  var tri=function(v){return v===true?"✓ Yes":v===false?"○ No":"? Unknown"};
+  var scopeLabels={requester:"Change requester",operator:"Operator",chat_binding:"Bound chat",stack:"Application stack",git_identity:"Git identity",repository:"Repository",runtime_scope:"Live runtime scope",deployment:"Deployment",engagement_owner:"Engagement label"};
+  var scopeKeys={overview:["requester","chat_binding","stack"],identity:["requester","operator","git_identity"],routing:["requester","chat_binding"],runtime:["runtime_scope"],capabilities:["stack"],state:["repository"],deployment:["deployment"],terminals:["requester","chat_binding","stack","runtime_scope"]};
+  function scopeFactsFor(session,layer){
+    var facts=session&&session.scope&&Array.isArray(session.scope.facts)?session.scope.facts:[],keys=scopeKeys[layer]||[];
+    return keys.map(function(key){return facts.find(function(item){return item.key===key})}).filter(Boolean);
+  }
+  function scopeFact(session,key){return ((session&&session.scope||{}).facts||[]).find(function(item){return item.key===key})}
+  function dqrScopeObject(key,value,note){return '<button type="button" class="layer-object'+(selectedKind==="scope"&&selectedId===key?' active':'')+'" data-scope="'+esc(key)+'"><span class="object-kind">'+esc(scopeLabels[key]||key)+'</span><strong>'+esc(value||"Unknown")+'</strong><small>'+esc(note||"No verified source")+'</small><span class="object-more">Inspect evidence →</span></button>'}
+  function dqrStackObject(workspace,stack){
+    return '<div class="dqr-stack-object'+(!workspace?' unknown':'')+'"><span class="object-kind">Application stack · repository</span><strong>'+esc(workspace?nodeDisplayLabel(workspace):"Repository unverified")+'</strong><p>'+esc(stack?stack.value:"Package stack not inventoried")+'</p><div class="dqr-stack-actions">'+(workspace?'<button type="button" data-node="'+esc(workspace.id)+'"'+(selectedKind==="node"&&selectedId===workspace.id?' class="active"':'')+'>Repository evidence →</button>':'')+(stack?'<button type="button" data-scope="stack"'+(selectedKind==="scope"&&selectedId==="stack"?' class="active"':'')+'>Package evidence →</button>':'')+'</div></div>';
+  }
+  function dqrWire(kind,edge){
+    var state=edge.stale?"stale":edge.evidence==="observed"?"observed":edge.evidence==="computed"?"computed":"declared";
+    return '<g class="dqr-wire '+state+(selectedKind==="edge"&&selectedId===edge.id?' active':'')+'" data-dqr-wire="'+kind+'" data-edge="'+esc(edge.id)+'" role="button" tabindex="0" aria-label="Inspect '+esc(edgeName(edge)+": "+nodeLabel(edge.from)+" to "+nodeLabel(edge.to))+ '"><path class="dqr-line" marker-end="url(#dqr-arrow-'+(edge.stale?'stale':kind)+')"></path><path class="dqr-hit"></path><circle class="dqr-port" r="5"></circle></g>';
+  }
+  function dqrWireLabel(kind,edge,name,meaning){return '<button type="button" class="dqr-wire-label'+(edge.stale?' stale':'')+(selectedKind==="edge"&&selectedId===edge.id?' active':'')+'" style="--wire:'+(kind==="chat"?'#fc80dc':'#bda4ff')+'" data-dqr-wire="'+kind+'" data-edge="'+esc(edge.id)+'" aria-label="Inspect '+esc(edgeName(edge))+ '"><strong>'+esc(name)+'</strong><small>'+esc(edge.stale?'last known':meaning)+'</small></button>'}
+  function scopeSection(session,layer,title){
+    var facts=scopeFactsFor(session,layer);
+    if(!facts.length)return "";
+    return '<div class="layer-section"><h4>'+esc(title)+'</h4><div class="scope-grid">'+facts.map(function(item){return '<div class="scope-card'+(item.evidence==="mismatch"?' mismatch':'')+'"><strong>'+esc(scopeLabels[item.key]||item.key)+'</strong><p>'+esc(item.value)+'</p><small>'+esc(item.evidence)+' · '+esc(item.source)+' · '+esc(when(item.as_of))+'</small></div>'}).join("")+'</div><p class="scope-note">Facts are tied to named sources and check times. Contact handles, message contents, and credentials remain hidden.</p></div>';
+  }
+  var responsibilityLabels={own:"Owned work",input:"Required input",output:"Expected output",boundary:"Boundary",dependency:"Dependency",approval_gate:"Approval gate",tool_requirement:"Required tool",tool_available:"Observed tool use / availability evidence",handoff:"Handoff",completion_check:"Completion check",completion_evidence:"Recorded evidence"};
+  var responsibilityGroups={identity:[{title:"Owned work",kinds:["own"]},{title:"Boundaries",kinds:["boundary"]},{title:"Approval gates",kinds:["approval_gate"]}],routing:[{title:"Inputs",kinds:["input"]},{title:"Handoff statements",kinds:["handoff"]}],capabilities:[{title:"Tool requirements",kinds:["tool_requirement"]},{title:"Observed tool use / availability evidence",kinds:["tool_available"]}],state:[{title:"Dependencies",kinds:["dependency"]}],deployment:[{title:"Expected outputs",kinds:["output"]},{title:"Required completion checks",kinds:["completion_check"]},{title:"Recorded completion evidence",kinds:["completion_evidence"]}]};
+  function responsibilityModel(session){var model=session&&session.responsibility_model;if(model&&Array.isArray(model.items))return model;var old=session&&session.last_known_responsibility_model;return old&&Array.isArray(old.items)?Object.assign({},old,{_lastKnown:true}):null}
+  function responsibilityItem(session,index){var model=responsibilityModel(session),n=Number(index);return model&&Number.isSafeInteger(n)&&n>=0&&String(n)===String(index)?model.items[n]:null}
+  function responsibilityHandoffRoute(item,session){if(!item||item.kind!=="handoff"||!item.counterparty||!session)return "";return item.direction==="incoming"?item.counterparty+" → "+session.label+" session":item.direction==="outgoing"?session.label+" scope → "+item.counterparty:""}
+  function responsibilityDecision(item){if(!item||item.kind!=="approval_gate")return "";return item.decision==="pending"?"Decision pending · no approval recorded":item.decision==="approved"?"Decision approved":item.decision==="rejected"?"Decision rejected":"Decision not recorded"}
+  function responsibilitySummary(session){
+    var model=responsibilityModel(session);if(!model)return "";
+    return '<button type="button" class="responsibility-summary'+(model._lastKnown?' stale':'')+(selectedKind==="responsibility_mission"?' active':'')+'" data-responsibility-mission="true" aria-label="Inspect '+esc(session.label)+' declared mission and source"><span class="scope-kicker">'+(model._lastKnown?'Last-known':'Declared')+' scope brief · session name only</span><strong>'+esc(model.role||"Role not recorded")+'</strong><span class="scope-mission">'+esc(model.mission||"Mission not recorded")+'</span><span class="scope-provenance">'+esc(model.source||"Source unknown")+' · '+esc(when(model.as_of))+' · Live agent identity unverified · Inspect source →</span></button>';
+  }
+  function responsibilitySections(session,layer){
+    var model=responsibilityModel(session),groups=responsibilityGroups[layer];if(!model||!groups)return "";
+    var cards=groups.map(function(group){
+      var entries=model.items.map(function(item,index){return {item:item,index:index}}).filter(function(entry){return group.kinds.includes(entry.item.kind)});
+      if(!entries.length)return "";
+      return '<section class="responsibility-group" data-responsibility-group="'+esc(group.kinds[0])+'"><h4>'+esc(group.title)+'</h4><div class="responsibility-grid">'+entries.map(function(entry){
+        var item=entry.item,active=selectedKind==="responsibility_item"&&selectedId===String(entry.index),outcome=item.outcome?" · "+item.outcome:"",route=responsibilityHandoffRoute(item,session),decision=responsibilityDecision(item);
+        return '<button type="button" class="responsibility-item'+(model._lastKnown?' stale':'')+(active?' active':'')+'" data-responsibility-item="'+entry.index+'" data-kind="'+esc(item.kind)+'"'+(item.outcome?' data-outcome="'+esc(item.outcome)+'"':'')+(item.decision?' data-decision="'+esc(item.decision)+'"':'')+'" aria-label="Inspect '+esc(responsibilityLabels[item.kind]||item.kind)+': '+esc(route?route+". ":"")+esc(item.text)+(decision?". "+decision:"")+'"><span class="scope-kicker">'+(model._lastKnown?'Last-known · ':'')+esc(responsibilityLabels[item.kind]||item.kind)+'</span>'+(route?'<span class="responsibility-route">'+esc(route)+'</span>':'')+'<strong>'+esc(item.text)+'</strong>'+(decision?'<span class="responsibility-decision">'+esc(decision)+(item.approver?' · Decision owner: '+esc(item.approver):'')+'</span>':'')+'<small>'+esc(item.evidence||"evidence unknown")+outcome+' · '+esc(item.source||"source unknown")+' · '+esc(when(item.as_of))+(item.check_key?' · check '+esc(item.check_key):'')+'</small></button>';
+      }).join("")+'</div></section>';
+    }).filter(Boolean).join("");
+    if(layer==="capabilities")cards+='<p class="responsibility-caveat">A requirement does not prove availability. A dated observed use applies only to the stated action and time; current access and later invocations are unverified.</p>';
+    if(layer==="routing")cards+='<p class="responsibility-caveat">Each handoff has its own evidence label. A checked incoming assignment does not establish an outgoing completion handoff or a message route.</p>';
+    if(layer==="deployment")cards+='<p class="responsibility-caveat">'+(model.items.some(function(item){return item.kind==="completion_evidence"})?'Each outcome applies only to its own evidence item. Overall completion remains unverified.':'Actual completion evidence is not recorded in this brief. Required checks and expected outputs are not proof of completion.')+'</p>';
+    if(!cards)return "";
+    return '<div class="responsibility-groups" data-responsibility-layer="'+esc(layer)+'">'+cards+'</div>';
+  }
+  var edgeName=function(e){return ({hands_off_to:"Declared handoff",handoff:"Declared handoff",planned_binding:"Planned agent binding",verified_binding:"Verified registry binding",path_claim:"Approved path claim",occupies:"Attested pane occupant",work_lease:"Managed work lease",chat_routes_to:"Chat ownership route",handles_bound_chat:"Configured chat handler",describes_session:"Routing description",router_addressable:"Addressable in snapshot",router_agent_pane_ready:"Pane ready in snapshot",executes_file:"Lists script",uses_tool:"Lists tool",uses_skill:"Lists skill",uses_workspace:"Declares workspace",reads_file:"Declares file read",bound_chat:"Bound chat",declares_service:"Declares service",runs_service:"Listener on registered port",proxy_routes_to:"Proxy route",schedules_job:"Registered LaunchAgent",launches:"Configured launch",writes_queue:"Declared queue writer",consumes_queue:"Declared queue reader",sends_chat:"Configured chat sender",has_instruction_file:"Instruction file in root",holds_draft:"Holds reply draft",approves_draft:"Approves draft",releases_reply:"Releases approved reply",stages_media:"Stages image",writes_asset:"Writes sanitized asset",invokes_tool:"Calls deployment tool",pushes_to:"Pushes main",triggers_deploy:"Configured deploy trigger",contains:"Contains",runs_on:"Runs on",uses:"Declared use",reads:"Declared read"})[e.type]||e.type.replace(/_/g," ")};
+  var edgePayload=function(e){if(e.type==="chat_routes_to"&&e.to==="session:DQR"&&data&&data.edges.some(function(item){return item.type==="holds_draft"&&item.from===e.from}))return "Operator text can reach DQR; external text follows the held-draft approval route. Delivery unobserved";return ({hands_off_to:"Intended work handoff; content and delivery unobserved",handoff:"Intended work handoff; content and delivery unobserved",planned_binding:"Registry identity metadata; no live occupant claim",verified_binding:"Registry identity metadata; current occupant separate",path_claim:"Approved workspace ownership claim; path redacted",occupies:"Time-bound launcher receipt for current pane occupant",work_lease:"Managed edit lease metadata",chat_routes_to:"Inbound chat events are configured to target this session; delivery unobserved",handles_bound_chat:"Configured incoming chat events; delivery unobserved",bound_chat:"Configured chat binding; delivery unobserved",describes_session:"Target description metadata; no messages carried",router_addressable:"Computed routing eligibility only; no delivery observed",router_agent_pane_ready:"Computed pane readiness only; no delivery observed",executes_file:"Declared script listing; invocation unobserved",uses_tool:"Declared tool capability; invocation unobserved",uses_skill:"Declared skill capability; invocation unobserved",uses_workspace:"Declared workspace relationship; access unobserved",reads_file:"Declared read relationship; file content hidden",declares_service:"Service declaration metadata; runtime separate",runs_service:"Registered port has a listener; process identity unverified",proxy_routes_to:"Configured proxy forwarding; requests unobserved",schedules_job:"LaunchAgent registration; execution separate",launches:"Configured job launch; execution separate",writes_queue:"Queued data intent; writes unobserved",consumes_queue:"Queued data intent; reads unobserved",sends_chat:"Configured queue-to-chat target; delivery unobserved",has_instruction_file:"Instruction file present in declared root; load unobserved",contains:"Observed hierarchy; no message traffic claimed",runs_on:"Observed tmux placement; no network traffic claimed",uses:"Declared use relationship; actual use unobserved",reads:"Declared read relationship; content hidden"})[e.type]||"Relationship metadata; actual traffic unknown"};
+  var edgeOrder=function(e){return ({hands_off_to:0,handoff:0,occupies:1,planned_binding:2,verified_binding:2,path_claim:3,work_lease:3,chat_routes_to:4,uses_tool:5,executes_file:6,describes_session:7,router_addressable:8,router_agent_pane_ready:9})[e.type]??7};
+  var occupiedNow=function(agentId){return !!(data&&data.edges.some(function(e){return e.type==="occupies"&&e.from===agentId&&!e.stale}))};
+  function setStatus(){
+    var s=data?data.status:"source_unavailable",labels={fresh:"● Live snapshot",partial:"◇ Partial snapshot",stale:"◷ Stale snapshot",demo:"✦ Synthetic tour",source_unavailable:"◇ Source unavailable"};
+    byId("status").dataset.state=s;byId("status").textContent=labels[s]||labels.source_unavailable;
+    byId("stamp").textContent=data&&data.collected_at?(s==="demo"?"Illustrative fixture only":("Collected "+when(data.collected_at)+" · "+age(data.collected_at))):"No collection time";
+    var unknowns=data&&data.unknowns?data.unknowns.filter(function(x){return x.kind==="source_unavailable"}):[];
+    var unavailable=[].concat(unknowns.map(function(x){return x.source}),((data&&data.sources)||[]).filter(function(x){return x.status==="unavailable"||x.status==="partial"}).map(function(x){return x.id})).filter(Boolean);
+    var notice=byId("notice");
+    if(s==="stale"){notice.hidden=false;notice.textContent="Refresh failed. This chart keeps the last collected facts, dated above."}
+    else if(s==="partial"||unknowns.length){notice.hidden=false;notice.textContent="Some sources could not be checked: "+(Array.from(new Set(unavailable)).join(", ")||"source status unknown")+". Missing facts remain unknown; dated last-known facts are marked in the chart and inspector."}
+    else if(s==="demo"){notice.hidden=false;notice.textContent="Synthetic tour. These characters and connections are illustrative; no live source is connected."}
+    else if(s==="source_unavailable"){notice.hidden=false;notice.textContent="The local snapshot source is unavailable. The diagram is empty until a valid collection arrives."}
+    else notice.hidden=true;
+    byId("demo").classList.toggle("on",demo);
+    byId("stage").classList.toggle("snapshot-stale",s==="stale");
+  }
+  function chooseInitial(){
+    var list=sessions(),ids=new Set(list.map(function(n){return n.id}));
+    if(!ids.has(selectedSession)){
+      var trace=list.find(function(n){return n.label.toLowerCase()==="trace"});
+      var handoff=data.edges.find(function(e){return (e.type==="hands_off_to"||e.type==="handoff")&&ids.has(e.from)});
+      var ranked=list.slice().sort(function(a,b){
+        var count=function(n){return data.edges.filter(function(e){return e.evidence!=="computed"&&(e.from===n.id||e.to===n.id)}).length};
+        return count(b)-count(a)||a.label.localeCompare(b.label)
+      });
+      selectedSession=(trace||(handoff?{id:handoff.from}:ranked[0])||{}).id||null;
+    }
+    var allIds=new Set(data.nodes.map(function(n){return n.id})),allEdges=new Set(data.edges.map(function(e){return e.id}));
+    if(selectedKind==="node"&&!allIds.has(selectedId))selectedId=selectedSession;
+    if(selectedKind==="edge"&&!allEdges.has(selectedId)){selectedKind="node";selectedId=selectedSession}
+    if(selectedKind==="responsibility_mission"&&!responsibilityModel(nodeIndex()[selectedSession])){selectedKind="node";selectedId=selectedSession}
+    if(selectedKind==="responsibility_item"&&!responsibilityItem(nodeIndex()[selectedSession],selectedId)){selectedKind="node";selectedId=selectedSession}
+    if(!selectedId)selectedId=selectedSession;
+  }
+  function renderRoster(){
+    var q=byId("search").value.trim().toLowerCase(),list=sessions(),visible=list.filter(function(n){return n.label.toLowerCase().includes(q)});
+    byId("session-count").textContent="("+list.length+")";
+    byId("roster-caption").textContent="Selected: "+nodeLabel(selectedSession);
+    byId("roster").innerHTML=visible.length?visible.map(function(n){
+      var role=(n.identity||{}).role||"unknown",symbol=n.observed===null?"?":n.observed?"●":"○";
+      var detail=role==="assigned"?"Assigned role":role==="unassigned"?"Unassigned role":"Role unknown";
+      return '<button class="roster-item'+(n.id===selectedSession?" active":"")+((n.registry||{}).state==="planned"?" planned":"")+'" data-session="'+esc(n.id)+'" type="button" aria-current="'+(n.id===selectedSession?"true":"false")+'"><span class="symbol" aria-hidden="true">'+symbol+'</span><span><span class="name">'+esc(n.label)+'</span><small>'+esc(detail)+' · '+(n.stale?"last known":n.stale_fields&&n.stale_fields.length?"partial source":n.observed===null?"observation unknown":n.observed?"observed":"not observed")+'</small></span></button>';
+    }).join(""):'<p class="roster-empty">No matching sessions.</p>';
+  }
+  function relevant(){
+    if(!data||!selectedSession)return {tree:[],edges:[],related:[]};
+    var own=new Set([selectedSession]),queue=[selectedSession];
+    while(queue.length){var id=queue.shift();childrenOf(id).forEach(function(n){if(!own.has(n.id)){own.add(n.id);queue.push(n.id)}})}
+    var tree=data.nodes.filter(function(n){return own.has(n.id)});
+    var direct=data.edges.filter(function(e){return own.has(e.from)||own.has(e.to)}),idx=nodeIndex();
+    var boundAgents=new Set();direct.forEach(function(e){if(idx[e.from]&&idx[e.from].type==="agent")boundAgents.add(e.from);if(idx[e.to]&&idx[e.to].type==="agent")boundAgents.add(e.to)});
+    var all=data.edges.filter(function(e){return own.has(e.from)||own.has(e.to)||boundAgents.has(e.from)||boundAgents.has(e.to)});
+    var relatedIds=new Set();all.forEach(function(e){if(!own.has(e.from))relatedIds.add(e.from);if(!own.has(e.to))relatedIds.add(e.to)});
+    var related=Array.from(relatedIds).map(function(id){return idx[id]}).filter(Boolean);
+    return {tree:tree,edges:all,related:related};
+  }
+  function layerForEdge(e){
+    if(e.layer)return ({data:"state",memory:"instructions",tools:"capabilities",skills:"capabilities"})[e.layer]||e.layer;
+    if(["hands_off_to","handoff","chat_routes_to","handles_bound_chat","bound_chat","describes_session","router_addressable","router_agent_pane_ready","sends_chat"].includes(e.type))return "routing";
+    if(["planned_binding","verified_binding","occupies"].includes(e.type))return "identity";
+    if(["uses_tool","uses_skill","executes_file"].includes(e.type))return "capabilities";
+    if(["reads_file","reads","has_instruction_file"].includes(e.type))return "instructions";
+    if(["declares_service","runs_service","uses","proxy_routes_to"].includes(e.type))return "services";
+    if(["writes_queue","consumes_queue","uses_workspace","path_claim","work_lease"].includes(e.type))return "state";
+    if(["launches","schedules_job"].includes(e.type))return "deployment";
+    return "other";
+  }
+  function scopedEdges(layer){
+    if(!data||!selectedSession)return [];
+    var idx=nodeIndex(),r=relevant(),host=idx[(idx[selectedSession]||{}).parent_id],ids=new Set(r.tree.map(function(n){return n.id})),edges=[],seen=new Set();
+    r.edges.forEach(function(e){if(e.evidence==="computed"||["describes_session","hands_off_to","handoff"].includes(e.type))return;if(ids.has(e.from)&&idx[e.to]&&idx[e.to].type!=="session")ids.add(e.to);if(ids.has(e.to)&&idx[e.from]&&idx[e.from].type!=="session")ids.add(e.from)});
+    r.edges.forEach(function(e){if(layerForEdge(e)===layer&&!seen.has(e.id)){seen.add(e.id);edges.push(e);ids.add(e.from);ids.add(e.to)}});
+    if(host&&["services","network","deployment"].includes(layer))data.edges.forEach(function(e){if(layerForEdge(e)===layer&&(layer==="network"||e.from===host.id||e.to===host.id)&&!seen.has(e.id)){seen.add(e.id);edges.push(e);ids.add(e.from);ids.add(e.to)}});
+    for(var depth=0;depth<2;depth++){
+      var changed=false;
+      data.edges.forEach(function(e){if(layerForEdge(e)!==layer||seen.has(e.id)||(!ids.has(e.from)&&!ids.has(e.to)))return;
+        var a=idx[e.from],b=idx[e.to];if((a&&a.type==="session"&&a.id!==selectedSession)||(b&&b.type==="session"&&b.id!==selectedSession))return;
+        seen.add(e.id);edges.push(e);ids.add(e.from);ids.add(e.to);changed=true;
+      });
+      if(!changed)break;
+    }
+    var focus=(idx[selectedSession]||{}).label.toLowerCase();
+    function priority(e){var text=[e.id,e.display,(idx[e.from]||{}).label,(idx[e.to]||{}).label].join(" ").toLowerCase();return (e.from===selectedSession||e.to===selectedSession?100:0)+(focus&&text.includes(focus)?60:0)+(text.includes("fleet-map")?50:0)+(text.includes("bound-trace")?40:0)}
+    if(selectedSession==="session:DQR"){
+      if(layer==="routing")edges=edges.filter(function(e){return e.type==="chat_routes_to"&&e.to===selectedSession});
+      if(layer==="deployment")edges=edges.filter(function(e){return e.type==="pushes_to"||e.type==="triggers_deploy"});
+      if(layer==="services"||layer==="network")edges=[];
+    }
+    return edges.sort(function(a,b){return priority(b)-priority(a)||edgeOrder(a)-edgeOrder(b)||a.id.localeCompare(b.id)});
+  }
+  function nodeSummary(n){
+    if(!n)return "Evidence unavailable";
+    if(n.stale)return "Last known · source unavailable";
+    if(n.type==="session")return ((n.identity||{}).role==="assigned"?"Assigned card":(n.identity||{}).role==="unassigned"?"Unassigned card":"Role unknown")+" · "+(n.observed===true?"observed session":"observation unknown");
+    if(n.type==="pane")return ((n.process||{}).display||"Process unknown")+" · occupant separate";
+    if(n.type==="host")return n.observed===true?"Observed computer / server":"Host observation unknown";
+    if(n.type==="chat"||n.type==="channel")return "Configured contact point · physical device unknown";
+    if(n.type==="agent")return (n.registry||{}).state?"Registry "+n.registry.state+" · occupant separate":"Stable identity · binding unknown";
+    if(n.id==="tool:dqr-media")return "DQR image script · separate from Media session";
+    if(n.type==="tool"||n.type==="skill")return "Declared capability · use unobserved";
+    if(n.type==="workspace")return "Workspace relationship · path redacted";
+    if(n.type==="instruction"||n.type==="file")return "Instruction or file metadata · content hidden";
+    if(n.type==="service")return [n.kind,n.reach,n.status?"Port "+n.status:""].filter(Boolean).join(" · ")||"Service metadata";
+    if(n.type==="endpoint")return [n.transport,n.status].filter(Boolean).join(" · ")||"Endpoint metadata";
+    if(n.type==="job")return n.status||"Job status unknown";
+    if(n.type==="data")return "Symbolic data/state · content hidden";
+    return n.observed===true?"Observed":n.declared===true?"Declared":"Status unknown";
+  }
+  function layerObject(n,openLayer,kindLabel){
+    if(!n)return '<div class="layer-object unknown"><span class="object-kind">Unknown</span><strong>No verified object</strong><small>This source has not identified an endpoint.</small></div>';
+    return '<button type="button" class="layer-object'+(selectedKind==="node"&&selectedId===n.id?" active":"")+'" data-node="'+esc(n.id)+'"'+(openLayer?' data-open-layer="'+esc(openLayer)+'"':"")+'><span class="object-kind">'+esc(kindLabel||n.type)+(n.stale?" · last known":"")+'</span><strong>'+esc(nodeDisplayLabel(n))+'</strong><small>'+esc(nodeSummary(n))+'</small><span class="object-more">'+(openLayer?"Open "+esc(layerById(openLayer).name)+" →":"Inspect evidence →")+'</span></button>';
+  }
+  function unknownObject(title,message){return '<div class="layer-object unknown"><span class="object-kind">Unverified</span><strong>'+esc(title)+'</strong><small>'+esc(message)+'</small><span class="object-more">No connection asserted</span></div>'}
+  function relation(id,from,to,type,payload,source,asOf){
+    var idx=nodeIndex(),a=idx[from],b=idx[to],current=a&&b&&a.observed===true&&b.observed===true&&!a.stale&&!b.stale;
+    var item={id:id,from:from,to:to,type:type,evidence:current?"observed":a&&b&&(a.stale||b.stale)?"last-known":"declared",payload:current?payload:"Snapshot parent relationship; current placement unverified",source:source,freshness:{status:current?"observed-hierarchy":a&&b&&(a.stale||b.stale)?"last-known":"unverified",as_of:asOf}};
+    relationIndex[id]=item;return item;
+  }
+  function layerFlow(e){
+    var idx=nodeIndex(),a=idx[e.from],b=idx[e.to],payload=e.payload||edgePayload(e),isRel=!!e.synthetic;
+    return '<div class="layer-flow">'+layerObject(a)+'<button type="button" class="flow-center'+(selectedKind===(isRel?"relation":"edge")&&selectedId===e.id?" active":"")+'" '+(isRel?'data-relation="'+esc(e.id)+'"':'data-edge="'+esc(e.id)+'"')+'" aria-label="Inspect '+esc(edgeName(e)+" from "+nodeLabel(e.from)+" to "+nodeLabel(e.to))+'"><strong>'+esc(edgeName(e))+'</strong><span class="flow-direction" aria-hidden="true">→</span><small>'+esc(payload)+'</small><em>'+esc(e.evidence||"unknown")+' · '+esc((e.freshness||{}).status||"status unknown")+'</em></button>'+layerObject(b)+'</div>';
+  }
+  function layerUnknown(title,message){return '<div class="layer-empty"><strong>'+esc(title)+'</strong>'+esc(message)+'</div>'}
+  function renderLayerTabs(){
+    var tabs=byId("layer-tabs");
+    if(!tabs.children.length)tabs.innerHTML=layerDefs.map(function(l,i){return '<button type="button" data-layer="'+esc(l.id)+'" aria-pressed="false"><span class="layer-number">'+String(i+1).padStart(2,"0")+'</span>'+esc(l.name)+'</button>'}).join("");
+    Array.from(tabs.children).forEach(function(button){button.setAttribute("aria-pressed",button.dataset.layer===activeLayer?"true":"false")});
+  }
+  function renderOverview(){
+    var idx=nodeIndex(),session=idx[selectedSession],host=session?idx[session.parent_id]:null,chatEdge=data.edges.find(function(e){return e.type==="chat_routes_to"&&e.to===selectedSession}),chat=chatEdge?idx[chatEdge.from]:null;
+    if(session&&session.id==="session:DQR"&&session.scope){
+      var requester=scopeFact(session,"requester"),stack=scopeFact(session,"stack"),workspaceEdge=data.edges.find(function(e){return e.type==="uses_workspace"&&e.from===session.id&&idx[e.to]&&idx[e.to].type==="workspace"}),workspace=workspaceEdge?idx[workspaceEdge.to]:null,chatId=chat&&Number.isSafeInteger(chat.local_chat_id)?"Local Messages chat "+chat.local_chat_id:"Bound chat · ID unverified";
+      return '<div class="dqr-topology-area"><div class="dqr-topology">'
+        +'<svg class="dqr-topology-svg" aria-label="DQR source-backed connections"><defs><marker id="dqr-arrow-chat" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#fc80dc"></path></marker><marker id="dqr-arrow-workspace" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#bda4ff"></path></marker><marker id="dqr-arrow-stale" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#f7c872"></path></marker></defs>'
+        +(chat&&chatEdge?dqrWire("chat",chatEdge):"")+(workspace&&workspaceEdge?dqrWire("workspace",workspaceEdge):"")+'</svg>'
+        +'<div class="dqr-node dqr-node-requester" data-dqr-node="requester">'+dqrScopeObject("requester",requester&&requester.value,requester?requester.evidence+" · "+requester.source:"Person not verified")+'</div>'
+        +'<div class="dqr-node dqr-node-chat" data-dqr-node="chat">'+(chat?layerObject(chat,null,chatId):unknownObject("Bound chat","No checked chat binding"))+'</div>'
+        +'<div class="dqr-node dqr-node-session" data-dqr-node="session">'+layerObject(session,null,"DQR session")+'</div>'
+        +'<div class="dqr-node dqr-node-stack" data-dqr-node="stack">'+dqrStackObject(workspace,stack)+'</div>'
+        +(chat&&chatEdge?dqrWireLabel("chat",chatEdge,"Operator instructions","configured route"):"")
+        +(workspace&&workspaceEdge?dqrWireLabel("workspace",workspaceEdge,"Repository root","declared reference"):"")
+        +'</div></div><div class="layer-note">Colored arrows appear only for source-backed connections. '+(chat&&chatEdge?'Bound chat → DQR is a configured route; ':'The chat route is unverified; ')+(workspace&&workspaceEdge?'DQR → repository is a declared workspace reference. ':'The repository relationship is unverified. ')+'Neither arrow proves activity. The requester is a named contact with an unverified handle-to-person mapping. Package versions are declared in the repository manifest.</div>';
+    }
+    var hostRel=session&&host?relation("runs-on:"+session.id+":"+host.id,session.id,host.id,"runs_on","Observed tmux placement; no network payload or message traffic claimed","tmux hierarchy",session.observed_at):null;
+    if(hostRel)hostRel.synthetic=true;
+    var hostPipe=hostRel?'<div class="overview-pipe reverse"><button type="button" data-relation="'+esc(hostRel.id)+'" aria-label="Inspect runtime placement"><span class="flow-arrow" aria-hidden="true">←</span><span class="flow-name">Runs on</span><span class="flow-payload">'+esc(hostRel.evidence==="observed"?"Tmux placement · no traffic":"Last known / unverified placement")+'</span></button></div>':'<div class="overview-pipe unknown"><span class="flow-arrow">?</span><span class="flow-name">Host unknown</span><span class="flow-payload">No verified placement</span></div>';
+    var dqrHeld=chatEdge&&session.id==="session:DQR"&&data.edges.some(function(e){return e.type==="holds_draft"&&e.from===chatEdge.from});
+    var chatPipe=chatEdge?'<div class="overview-pipe reverse"><button type="button" data-edge="'+esc(chatEdge.id)+'" aria-label="Inspect configured inbound chat route"><span class="flow-arrow" aria-hidden="true">←</span><span class="flow-name">Chat → '+esc(session.label)+'</span><span class="flow-payload">'+(dqrHeld?'Operator text to session · external text held':'Inbound chat events · delivery unobserved')+'</span></button></div>':'<div class="overview-pipe unknown"><span class="flow-arrow">?</span><span class="flow-name">Route unknown</span><span class="flow-payload">No configured binding in this snapshot</span></div>';
+    var contactKind=chat&&(chat.source_refs||[]).includes("chatbind")?"Phone chat channel · handset unknown":"Contact channel · device unknown";
+    return responsibilitySummary(session)+'<div class="overview-grid">'+(host?layerObject(host,"runtime","Computer / server"):unknownObject("Computer / server","No host placement in this snapshot"))+hostPipe+layerObject(session,"identity","Agent session")+chatPipe+(chat?layerObject(chat,"routing",contactKind):unknownObject("Phone / chat contact","No verified contact point in this snapshot"))+'</div>'+scopeSection(session,"overview","Scope at a glance")+'<div class="layer-note"><strong>Read this as a map of evidence.</strong> '+esc(session.label)+(hostRel&&hostRel.evidence==="observed"?' is observed on ':' is listed under ')+esc(host?host.label:"an unknown host")+'. '+(dqrHeld?'Operator text is configured to reach this session; external text enters the held-draft route. Delivery is not observed.':chatEdge?'A chat ownership route is configured to this session; message delivery is not observed.':'No chat ownership route is recorded.')+' A physical phone, its owner, and its network path are unknown in this snapshot.</div>';
+  }
+  function renderLayerContent(layer){
+    var idx=nodeIndex(),session=idx[selectedSession],host=session?idx[session.parent_id]:null,r=relevant(),edges=scopedEdges(layer),cap=["network","services","deployment"].includes(layer)?6:Infinity,shownEdges=expandedLayers[layer]?edges:edges.slice(0,cap),nodes=[],seen=new Set();
+    function add(n){if(n&&!seen.has(n.id)){seen.add(n.id);nodes.push(n)}}
+    if(layer==="overview")return renderOverview();
+    if(layer==="identity"){
+      add(session);edges.forEach(function(e){add(idx[e.from]);add(idx[e.to])});
+      var duties=session.responsibilities||session.last_known_responsibilities,old=!session.responsibilities&&!!session.last_known_responsibilities;
+      var dutyBlock=duties&&Array.isArray(duties.items)&&duties.items.length?'<div class="layer-section"><h4>'+(old?'Last-known card responsibilities':'Declared card responsibilities')+'</h4><ol class="responsibility-list'+(old?' responsibility-stale':'')+'">'+duties.items.map(function(line){return '<li>'+esc(line)+'</li>'}).join("")+'</ol><p class="responsibility-source">'+esc(duties.source||"identity card")+' · '+esc(old?'last known / source unavailable':duties.status||"declared")+' · '+esc(when(duties.as_of))+'</p></div>':session.id==="session:DQR"?"":layerUnknown("Card duties not inventoried","The current snapshot has no projected responsibility bullets for this session. Role and duties cannot be inferred from its process name.");
+      return responsibilitySummary(session)+responsibilitySections(session,"identity")+'<div class="layer-section"><h4>Identities in this branch</h4><div class="layer-cards">'+nodes.map(function(n){return layerObject(n)}).join("")+'</div></div>'+scopeSection(session,"identity","Owner and account context")+dutyBlock+(edges.length?'<div class="layer-section"><h4>Binding evidence</h4><div class="layer-rows">'+edges.map(layerFlow).join("")+'</div></div>':layerUnknown("Stable agent and occupant unverified","The card may name a role, but this snapshot has no source-backed registry binding or current occupant receipt for this session."))+'<div class="layer-note">Card role: '+esc((session.identity||{}).role||"unknown")+' · card present: '+esc(tri((session.identity||{}).card_present))+' · registry agent ID: '+esc((session.registry||{}).agent_id||"unknown")+'. '+(responsibilityModel(session)?'The scope brief is attached by session name only; it does not verify the live agent or occupant.':'Unshown card rules remain outside this metadata snapshot.')+'</div>';
+    }
+    if(layer==="runtime"){
+      var tree=r.tree.filter(function(n){return n.type==="window"||n.type==="pane"}),rels=[];
+      if(host&&session){var hr=relation("contains:"+host.id+":"+session.id,host.id,session.id,"contains","Observed tmux hierarchy; no message traffic claimed","tmux hierarchy",session.observed_at);hr.synthetic=true;rels.push(hr)}
+      tree.forEach(function(n){var p=idx[n.parent_id];if(!p)return;var cr=relation("contains:"+p.id+":"+n.id,p.id,n.id,"contains","Observed tmux hierarchy; no message traffic claimed","tmux hierarchy",n.observed_at);cr.synthetic=true;rels.push(cr)});
+      return scopeSection(session,"runtime","Runtime boundary")+'<div class="layer-section"><h4>Live containment · host → session → window → pane</h4><div class="layer-rows">'+rels.map(layerFlow).join("")+'</div></div>'+(rels.length?"":layerUnknown("Runtime unknown","No tmux containment was observed for this session."));
+    }
+    if(layer==="network")add(host);
+    if(layer==="instructions")add(session);
+    if(layer==="state"&&session)add(session);
+    shownEdges.forEach(function(e){add(idx[e.from]);add(idx[e.to])});
+    var blocks=[];
+    var responsibilityBlock=responsibilitySections(session,layer);if(responsibilityBlock)blocks.push(responsibilityBlock);
+    var scopeHeading={routing:"Bound chat and requester",state:"Application repository",deployment:"Application hosting"}[layer];
+    if(scopeHeading)blocks.push(scopeSection(session,layer,scopeHeading));
+    if(nodes.length&&["network","instructions","state"].includes(layer))blocks.push('<div class="layer-section"><h4>Known objects</h4><div class="layer-cards">'+nodes.map(function(n){return layerObject(n)}).join("")+'</div></div>');
+    if(edges.length){var heading=layer==="services"?"Registered host services · session calls unobserved":layer==="network"?"Tailnet and host routes · map access first":"Directional relationships";blocks.push('<div class="layer-section"><h4>'+heading+'</h4><div class="layer-rows">'+shownEdges.map(layerFlow).join("")+'</div>'+(edges.length>cap?'<button type="button" class="btn" data-expand-layer="'+esc(layer)+'" style="margin-top:11px">'+(expandedLayers[layer]?'Show fewer routes':'Show '+(edges.length-cap)+' more '+(layer==="network"?'host routes':'relationships'))+'</button>':"")+'</div>')}
+    if(layer==="instructions")blocks.push('<div class="layer-note">Identity card: '+esc(tri((session.identity||{}).card_present))+' · session standard: '+esc(tri((session.standard||{}).present))+'. File contents, instruction text, and memory use are outside this metadata snapshot.</div>');
+    if(layer==="network"){
+      var remoteSource=(data.sources||[]).find(function(s){return s.id==="remote_hosts"}),unchecked=(data.summary||{}).remote_hosts_unchecked;
+      var remoteNote=remoteSource?"Remote SSH collection source: "+esc(remoteSource.status||"unknown")+".":"Remote SSH collection: no remote-host source in this snapshot (not configured in this preview).";
+      if(typeof unchecked==="number")remoteNote+=" "+unchecked+" declared remote host"+(unchecked===1?"":"s")+" unchecked.";
+      blocks.push('<div class="layer-note">'+(host?'Host reachability: '+esc(host.reachability||"unknown")+'. ':'')+remoteNote+' A tailnet proxy to this map does not identify a physical phone or prove a chat delivery path.</div>');
+    }
+    if(layer==="capabilities"){if(selectedSession==="session:DQR")blocks.unshift(scopeSection(session,"capabilities","Application stack"));blocks.push('<div class="layer-note">'+(responsibilityModel(session)?'The brief shows each tool statement’s dated evidence. Current pane access, the full skill/MCP inventory, and later tool use require separate checks.':'This session’s skill inventory and MCP tool availability are unknown in this snapshot. Listed tools are card declarations; invocation is unobserved.')+'</div>')}
+    if(layer==="services")blocks.push('<div class="layer-note">The listed services are registered on this host. This layer does not claim this session called their APIs or identify a per-session MCP connection. Chat and outbox jobs, where inventoried, appear in <button class="btn" type="button" data-layer="routing">Routing</button> and <button class="btn" type="button" data-layer="deployment">Deployment</button>.</div>');
+    if(layer==="state"&&session){var re=session.root_evidence||{},rootChecked=re.observed_cwd_within_card===true||re.observed_cwd_within_standard===true;blocks.push('<div class="layer-note">Configured working root: '+esc(rootChecked?"observed pane cwd is within the declared root; path redacted":"placement unknown")+'. Registry path ownership claim: '+esc(data.edges.some(function(e){return e.type==="path_claim"&&(e.from===selectedSession||e.to===selectedSession)})?"see claim pipe above":"unknown / not approved in this snapshot")+'. This does not assert workspace ownership.</div>')}
+    if(!edges.length){var missing={routing:["No route evidence","No configured or computed route for this selected branch."],capabilities:["Capabilities not inventoried","No source-backed tools or skills are attached to this branch in the current snapshot. This does not mean none exist."],services:["Service dependencies not inventoried","No source-backed service or API relationship is attached to this branch."],network:["Network path not inventoried","No SSH or Tailscale route for this branch is in the snapshot."],state:["Data and state not inventoried","No source-backed workspace claim, queue, or lease is attached to this branch."],deployment:["Deployment not inventoried","No source-backed release, job, or deployment relationship is attached to this branch."]}[layer];if(missing)blocks.push(layerUnknown(missing[0],missing[1]))}
+    return blocks.join("");
+  }
+  function drawDqrTopology(){
+    var topology=byId("layer-view").querySelector(".dqr-topology");
+    if(!topology||!topology.clientWidth||!topology.clientHeight)return;
+    var bounds=topology.getBoundingClientRect(),vertical=topology.clientWidth<=759,svg=topology.querySelector(".dqr-topology-svg");
+    svg.setAttribute("viewBox","0 0 "+topology.clientWidth+" "+topology.clientHeight);
+    [["chat","chat","session"],["workspace","session","stack"]].forEach(function(spec){
+      var kind=spec[0],from=topology.querySelector('[data-dqr-node="'+spec[1]+'"]'),to=topology.querySelector('[data-dqr-node="'+spec[2]+'"]'),group=svg.querySelector('[data-dqr-wire="'+kind+'"]'),label=topology.querySelector('.dqr-wire-label[data-dqr-wire="'+kind+'"]');
+      if(!from||!to||!group||!label)return;
+      var a=from.getBoundingClientRect(),b=to.getBoundingClientRect(),x1,y1,x2,y2,d,labelX,labelY;
+      if(vertical){
+        x1=a.left-bounds.left+28;y1=a.bottom-bounds.top;x2=b.left-bounds.left+28;y2=b.top-bounds.top;
+        d="M"+x1+" "+y1+" V"+((y1+y2)/2)+" H"+x2+" V"+y2;
+        labelX=Math.max(x1,x2)+20;labelY=(y1+y2)/2;
+      }else{
+        x1=a.right-bounds.left;y1=a.top-bounds.top+a.height/2;x2=b.left-bounds.left;y2=b.top-bounds.top+b.height/2;
+        d="M"+x1+" "+y1+" H"+((x1+x2)/2)+" V"+y2+" H"+x2;
+        labelX=(x1+x2)/2;labelY=Math.min(y1,y2)-13;
+      }
+      group.querySelector(".dqr-line").setAttribute("d",d);
+      group.querySelector(".dqr-hit").setAttribute("d",d);
+      var port=group.querySelector(".dqr-port");port.setAttribute("cx",x1);port.setAttribute("cy",y1);
+      label.style.left=labelX+"px";label.style.top=labelY+"px";
+    });
+  }
+  function renderLayerView(){
+    if(dqrTopologyObserver){dqrTopologyObserver.disconnect();dqrTopologyObserver=null}
+    renderLayerTabs();
+    var terminal=activeLayer==="terminals",view=byId("layer-view"),l=layerById(activeLayer),i=layerDefs.indexOf(l);
+    var dqrOverview=activeLayer==="overview"&&selectedSession==="session:DQR",responsibilityOverview=activeLayer==="overview"&&responsibilityModel(nodeIndex()[selectedSession]),title=dqrOverview?"DQR scope":responsibilityOverview?nodeLabel(selectedSession)+" scope":l.title,description=dqrOverview?"DQR, the configured change requester, the bound chat ID, and its application stack. Open a field for its source and deeper details.":responsibilityOverview?"Declared mission and limits are attached by session name. Live identity, tool use, handoff delivery, and completion require separate evidence.":l.description;
+    byId("terminal-actions").hidden=!terminal;byId("desktop-connections").hidden=!terminal||!selectedSession||allMode;byId("diagram-scroll").hidden=!terminal||!selectedSession||allMode;byId("all-tree").hidden=!terminal||!allMode;byId("mobile-map").hidden=!terminal||allMode;byId("empty").hidden=!!selectedSession;byId("stage").classList.toggle("layer-mode",!terminal);
+    byId("stage").classList.toggle("all-mode",terminal&&allMode);
+    byId("stage").querySelector(".legend").hidden=!terminal;
+    view.hidden=terminal||!selectedSession;
+    if(terminal||!selectedSession)return;
+    byId("stage-title").textContent=title;byId("stage-subtitle").textContent=(nodeLabel(selectedSession)||"Session")+" · layer "+(i+1)+" of "+layerDefs.length;
+    relationIndex={};
+    view.innerHTML='<div class="layer-intro"><div><span class="eyebrow">'+esc(l.name)+' · '+esc(nodeLabel(selectedSession))+'</span><h3>'+esc(title)+'</h3><p>'+esc(description)+'</p></div><span class="layer-depth">DEPTH '+String(i+1).padStart(2,"0")+' / '+String(layerDefs.length).padStart(2,"0")+'</span></div><div class="layer-body">'+renderLayerContent(activeLayer)+'<div class="layer-actions"><button class="btn" type="button" data-layer="'+esc(layerDefs[Math.max(0,i-1)].id)+'"'+(i===0?" disabled":"")+'>← Simpler</button><button class="btn" type="button" data-layer="'+esc(layerDefs[Math.min(layerDefs.length-1,i+1)].id)+'"'+(i===layerDefs.length-1?" disabled":"")+'>Deeper →</button></div></div>';
+    if(dqrOverview){drawDqrTopology();if(typeof ResizeObserver!=="undefined"){dqrTopologyObserver=new ResizeObserver(drawDqrTopology);dqrTopologyObserver.observe(view.querySelector(".dqr-topology"))}}
+  }
+  function shape(n){
+    var cls=n.type==="host"?"host":n.type==="session"?"session":n.type==="pane"?"pane":n.type==="window"?"window":"resource";
+    if(n.type==="session")cls+=" "+((n.identity||{}).role==="assigned"?"assigned":(n.identity||{}).role==="unassigned"?"unassigned":"uncertain")+((n.registry||{}).state==="planned"?" planned":"");
+    if(n.type==="chat"||n.type==="channel")cls+=" chat";
+    if(n.type==="agent")cls+=" agent";
+    if(n.type==="workspace"&&(n.registry||{}).access)cls+=" path-claim";
+    if(n.stale)cls+=" stale";else if(n.stale_fields&&n.stale_fields.length)cls+=" partial-source";
+    var icon={host:"⌂",session:"▣",window:"▤",pane:"▥",workspace:"▣",tool:"⚙",skill:"✦",file:"▤",channel:"◇",chat:"◇",agent:"☺"}[n.type]||"✦";
+    var sub=n.type==="session"?((n.registry||{}).state==="planned"?"Planned agent "+n.registry.agent_id:(n.identity||{}).role==="assigned"?"Assigned concern":(n.identity||{}).role==="unassigned"?"Unassigned concern":"Concern unknown"):n.type==="pane"?((n.process||{}).display||"Process unknown"):n.type==="agent"?(occupiedNow(n.id)?"Attested current occupant":(n.registry||{}).state==="planned"?"Planned · occupant unverified":(n.registry||{}).state==="verified"?"Registry verified · occupant unverified":"Registry identity"):n.type==="workspace"&&(n.registry||{}).access?"Approved "+n.registry.access+" claim · path redacted":(n.observed===null?"Observation unknown":n.observed?"Observed":"Declared");
+    return '<button type="button" class="map-node '+cls+(selectedKind==="node"&&selectedId===n.id?" active":"")+'" data-node="'+esc(n.id)+'" style="left:'+n.x+'px;top:'+n.y+'px;width:'+n.w+'px" aria-label="Inspect '+esc(n.type+" "+n.label+(n.stale?" last known":n.stale_fields&&n.stale_fields.length?" partial source":""))+'"><span class="icon" aria-hidden="true">'+icon+'</span><span><small>'+esc(n.type)+(n.stale?" · LAST KNOWN":n.stale_fields&&n.stale_fields.length?" · PARTIAL":"")+'</small><strong>'+esc(n.label)+'</strong><em>'+esc(sub)+'</em></span></button>';
+  }
+  function centerX(n){return n.x+n.w/2} function centerY(n){return n.y+n.h/2}
+  function portY(n,e,incident){
+    var edges=incident[n.id]||[],i=edges.findIndex(function(item){return item.id===e.id});
+    if(edges.length<2||i<0)return centerY(n);
+    var span=Math.min(Math.max(0,n.h-18),(edges.length-1)*10);
+    return centerY(n)-span/2+i*span/(edges.length-1);
+  }
+  function pathBetween(a,b,semantic,e,laneIndex,laneTotal,incident){
+    if(!semantic){var x1=centerX(a),y1=a.y+a.h,x2=centerX(b),y2=b.y,m=(y1+y2)/2;return {d:"M"+x1+" "+y1+" V"+m+" H"+x2+" V"+y2}}
+    var ay=portY(a,e,incident),by=portY(b,e,incident),x1,x2,rail,fromLeft=centerX(a)<centerX(b),horizontal=Math.abs(centerX(a)-centerX(b))>=80;
+    if(horizontal){
+      x1=fromLeft?a.x+a.w:a.x;x2=fromLeft?b.x:b.x+b.w;
+      var low=Math.min(x1,x2)+22,high=Math.max(x1,x2)-22,shift=(laneIndex-(laneTotal-1)/2)*12;
+      rail=low<=high?Math.max(low,Math.min(high,(x1+x2)/2+shift)):(x1+x2)/2;
+    }else{x1=a.x;x2=b.x;rail=Math.min(a.x,b.x)-48-laneIndex*12}
+    return {d:"M"+x1+" "+ay+" H"+rail+" V"+by+" H"+x2,x1:x1,y1:ay,x2:x2,y2:by,x:(x1+x2)/2,direction:horizontal?(fromLeft?"→":"←"):(centerY(a)<centerY(b)?"↓":"↑")};
+  }
+  function renderDiagram(){
+    var diagram=byId("diagram"),wires=byId("wires"),layer=byId("node-layer"),tags=byId("edge-tags");
+    if(!data||!selectedSession){byId("diagram-scroll").hidden=true;byId("empty").hidden=false;layer.innerHTML="";wires.innerHTML="";tags.innerHTML="";return}
+    byId("diagram-scroll").hidden=false;byId("empty").hidden=true;
+    if(allMode){byId("diagram-scroll").hidden=true;byId("empty").hidden=true;byId("all-tree").hidden=false;renderAllTree();return}
+    byId("all-tree").hidden=true;
+    var idx=nodeIndex(),picked=idx[selectedSession],host=idx[picked.parent_id],r=relevant();
+    var windows=r.tree.filter(function(n){return n.type==="window"}).sort(function(a,b){return a.id.localeCompare(b.id)}),panes=r.tree.filter(function(n){return n.type==="pane"}).sort(function(a,b){return a.id.localeCompare(b.id)});
+    var placed={},nodes=[];
+    function put(n,x,y,w){if(!n||placed[n.id])return;var v=Object.assign({},n,{x:x,y:y,w:w||190});placed[n.id]=v;nodes.push(v)}
+    put(host,310,22,190);put(picked,295,156,218);
+    var span=Math.max(1,windows.length),start=295-(span-1)*105;
+    windows.forEach(function(n,i){put(n,start+i*210,287,190)});
+    panes.forEach(function(n){var win=placed[n.parent_id],siblings=panes.filter(function(p){return p.parent_id===n.parent_id}),i=siblings.indexOf(n);put(n,(win?win.x:295)+(i-(siblings.length-1)/2)*95,419+i*82,190)});
+    var drawEdges=r.edges.filter(function(e){return showComputed||e.evidence!=="computed"}).sort(function(a,b){return edgeOrder(a)-edgeOrder(b)||a.id.localeCompare(b.id)});
+    var ownIds=new Set(r.tree.map(function(n){return n.id}));
+    var relatedIds=new Set();drawEdges.forEach(function(e){if(!ownIds.has(e.from))relatedIds.add(e.from);if(!ownIds.has(e.to))relatedIds.add(e.to)});
+    var related=Array.from(relatedIds).map(function(id){return idx[id]}).filter(Boolean);
+    related.forEach(function(n,i){put(n,700,150+i*108,218)});
+    var height=Math.max(640,250+related.length*108,520+Math.max(0,panes.length-1)*82);diagram.style.height=height+"px";wires.setAttribute("viewBox","0 0 960 "+height);
+    layer.innerHTML=nodes.map(shape).join("");
+    Array.from(layer.children).forEach(function(el){var n=placed[el.dataset.node];if(n){n.x=el.offsetLeft;n.y=el.offsetTop;n.w=el.offsetWidth;n.h=el.offsetHeight}});
+    var incident={},labelGroups={};
+    function labelAnchor(e){return !ownIds.has(e.from)?e.from:!ownIds.has(e.to)?e.to:e.to}
+    drawEdges.forEach(function(e){[e.from,e.to].forEach(function(id){if(!incident[id])incident[id]=[];incident[id].push(e)});var id=labelAnchor(e);if(!labelGroups[id])labelGroups[id]=[];labelGroups[id].push(e)});
+    Object.keys(incident).forEach(function(id){incident[id].sort(function(a,b){var ay=(placed[a.from===id?a.to:a.from]||{}).y||0,by=(placed[b.from===id?b.to:b.from]||{}).y||0;return ay-by||a.id.localeCompare(b.id)})});
+    var lines=[],labels=[],drawn=0;
+    nodes.forEach(function(n){if(!n.parent_id||!placed[n.parent_id])return;var p=pathBetween(placed[n.parent_id],n,false);lines.push('<g class="wire contains" data-node="'+esc(n.id)+'" role="button" tabindex="0" aria-label="Inspect containment to '+esc(n.label)+'"><path class="line" d="'+p.d+'"></path><path class="hit" d="'+p.d+'"></path></g>')});
+    drawEdges.forEach(function(e,i){var a=placed[e.from],b=placed[e.to];if(!a||!b)return;drawn++;var p=pathBetween(a,b,true,e,i,drawEdges.length,incident),active=selectedKind==="edge"&&selectedId===e.id,dim=selectedKind==="edge"&&!active;
+      var arrow=e.stale?"stale":e.evidence==="computed"?"computed":e.type==="occupies"?"occupies":e.type==="work_lease"||e.type==="path_claim"?"lease":e.type==="planned_binding"||e.type==="verified_binding"?"binding":e.type==="chat_routes_to"?"chat":e.type==="uses_tool"||e.type==="uses_workspace"||e.type==="executes_file"?"tool":e.type==="hands_off_to"||e.type==="handoff"?"handoff":"declared";
+      var accessible="Inspect "+nodeLabel(e.from)+" to "+nodeLabel(e.to)+": "+edgeName(e)+" · "+e.evidence;
+      lines.push('<g class="wire semantic '+esc(e.evidence)+(e.stale?" stale":"")+(active?" active":"")+(dim?" dim":"")+'" data-type="'+esc(e.type)+'" data-edge="'+esc(e.id)+'" data-from="'+esc(e.from)+'" data-to="'+esc(e.to)+'" role="button" tabindex="0" aria-label="'+esc(accessible)+'"><circle class="source-port" cx="'+p.x1+'" cy="'+p.y1+'" r="4"></circle><circle class="target-port" cx="'+p.x2+'" cy="'+p.y2+'" r="5"></circle><path class="line" d="'+p.d+'" marker-end="url(#arrow-'+arrow+')"></path><path class="hit" d="'+p.d+'"></path></g>');
+      var anchorId=labelAnchor(e),anchor=placed[anchorId]||b,group=labelGroups[anchorId]||[e],slot=group.findIndex(function(item){return item.id===e.id}),labelY=centerY(anchor)+(slot-(group.length-1)/2)*36;
+      labels.push('<button type="button" class="edge-tag '+esc(e.evidence)+(e.stale?" stale":"")+(active?" active":"")+(dim?" dim":"")+'" data-edge="'+esc(e.id)+'" style="left:'+p.x+'px;top:'+labelY+'px" aria-label="'+esc(accessible)+'">'+p.direction+' '+esc(edgeName(e))+(e.stale?" · last known":"")+'</button>');
+    });
+    wires.innerHTML='<defs>'+[['handoff','#b5e87b'],['binding','#b5e87b'],['occupies','#4cdbf0'],['lease','#f7c872'],['chat','#fc80dc'],['tool','#bda4ff'],['computed','#82aefe'],['declared','#b5e87b'],['stale','#f7c872']].map(function(v){return '<marker id="arrow-'+v[0]+'" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="'+v[1]+'"></path></marker>'}).join('')+'</defs>'+lines.join("");
+    tags.innerHTML=labels.join("");
+    var observed=r.edges.filter(function(e){return e.evidence==="observed"}).length,declared=r.edges.filter(function(e){return e.evidence==="declared"}).length,computed=r.edges.filter(function(e){return e.evidence==="computed"}).length;
+    var evidenceSummary=[observed?observed+" observed":"",declared?declared+" declared":"",computed?computed+" computed checks":""].filter(Boolean).join(" · ");
+    byId("desktop-connections-summary").textContent="Open connection list · "+r.edges.length+" relations/checks · "+drawn+" drawn"+(r.edges.length-drawn?" · "+(r.edges.length-drawn)+" hidden":"")+" · scroll diagram for lower endpoints";
+    byId("desktop-connection-list").innerHTML=connectionRows(r.edges);
+    byId("stage-title").textContent=picked.label+" · terminal branch";
+    byId("stage-subtitle").textContent=windows.length+" window"+(windows.length===1?"":"s")+" · "+panes.length+" pane"+(panes.length===1?"":"s")+" · "+evidenceSummary+(showComputed?"":" · computed checks hidden on diagram");
+  }
+  function connectionRows(edges){
+    return edges.length?edges.slice().sort(function(a,b){return edgeOrder(a)-edgeOrder(b)||a.id.localeCompare(b.id)}).map(function(e){
+      var state=e.stale?"last known":e.evidence==="computed"?"computed check · delivery unobserved":e.evidence==="declared"?"declared relation · activity unobserved":e.evidence||"evidence unknown";
+      return '<button type="button" data-edge="'+esc(e.id)+'" class="'+(selectedKind==="edge"&&selectedId===e.id?"active":"")+'" aria-label="Inspect '+esc(nodeLabel(e.from)+" to "+nodeLabel(e.to)+": "+edgeName(e)+" · "+state)+'"><span class="connection-kind">'+esc(edgeName(e))+' · '+esc(state)+'</span><span class="connection-route"><span class="connection-endpoint">'+esc(nodeLabel(e.from))+'</span><span class="connection-route-arrow" aria-hidden="true">→</span><span class="connection-endpoint">'+esc(nodeLabel(e.to))+'</span></span><span class="connection-detail">'+esc(e.payload||edgePayload(e))+'</span></button>';
+    }).join(""):'<p class="roster-empty">No relations or checks are recorded for this branch.</p>';
+  }
+  function treeHtml(id,idx){
+    var n=idx[id];if(!n)return "";var children=childrenOf(id);
+    return '<li><button type="button" data-node="'+esc(id)+'" class="'+(selectedKind==="node"&&selectedId===id?"active":"")+'"><strong>'+esc(n.type.toUpperCase()+" · "+n.label)+'</strong><small>'+esc(n.stale?"Last known · source unavailable":n.stale_fields&&n.stale_fields.length?"Partial source":n.type==="pane"?((n.process||{}).display||"Process unknown"):n.observed===null?"Observation unknown":n.observed?"Observed":"Declared")+'</small></button>'+(children.length?'<ol>'+children.map(function(c){return treeHtml(c.id,idx)}).join("")+'</ol>':"")+'</li>';
+  }
+  function renderAllTree(){
+    var idx=nodeIndex(),hosts=data.nodes.filter(function(n){return n.type==="host"}).sort(function(a,b){return a.id==="host:local"?-1:b.id==="host:local"?1:a.label.localeCompare(b.label)});
+    byId("all-tree").innerHTML='<div class="all-tree-intro"><strong>Complete terminal hierarchy</strong><span>'+sessions().length+' sessions · select any row to focus its pipes.</span></div><ol class="mobile-tree">'+hosts.map(function(h){return treeHtml(h.id,idx)}).join("")+'</ol>';
+    byId("stage-title").textContent="All terminals";byId("stage-subtitle").textContent="Host → session → window → pane. Named pipes appear in a focused branch.";
+  }
+  function renderMobile(){
+    byId("mobile-map").hidden=allMode;
+    if(!data||!selectedSession){byId("mobile-tree").innerHTML="";byId("connection-list").innerHTML="";return}
+    var idx=nodeIndex(),picked=idx[selectedSession],host=idx[picked.parent_id],r=relevant();
+    byId("mobile-tree").innerHTML=host?'<li><button type="button" data-node="'+esc(host.id)+'"><strong>HOST · '+esc(host.label)+'</strong><small>Observed host</small></button><ol>'+treeHtml(picked.id,idx)+'</ol></li>':treeHtml(picked.id,idx);
+    byId("connection-list").innerHTML=connectionRows(r.edges);
+  }
+  function fact(label,value,cls){return '<div><dt>'+esc(label)+'</dt><dd'+(cls?' class="'+cls+'"':'')+'>'+esc(value)+'</dd></div>'}
+  function renderInspector(){
+    var idx=nodeIndex(),model=responsibilityModel(idx[selectedSession]),item=selectedKind==="responsibility_mission"?model:selectedKind==="responsibility_item"?responsibilityItem(idx[selectedSession],selectedId):selectedKind==="scope"?(scopeFact(idx[selectedSession],selectedId)||{key:selectedId,value:"Unknown",evidence:"unverified"}):selectedKind==="relation"?relationIndex[selectedId]:selectedKind==="edge"&&data?data.edges.find(function(e){return e.id===selectedId}):idx[selectedId],facts=[],title="",desc="",icon="⌂",kind="";
+    if(!item){byId("inspect-title").textContent="Inspect the network";byId("inspect-type").textContent="Select a node or pipe";byId("inspect-desc").textContent="The chart keeps declared identity separate from the process seen in a pane.";byId("facts").innerHTML="";byId("inspector-actions").hidden=true;byId("inspect-deeper").hidden=true;return}
+    byId("inspector-actions").hidden=selectedKind!=="node"||!(item.type==="session"||item.type==="pane");
+    if(selectedKind==="responsibility_mission"){
+      kind=(model._lastKnown?"Last-known":"Declared")+" scope brief";title=model.role||"Responsibility model";icon="◇";
+      desc="This mission is associated by session name. It does not verify a registry agent or the current pane occupant.";
+      facts.push(fact("Mission",model.mission||"Unknown"),fact("Role brief",model.role||"Unknown"),fact("Status",model._lastKnown?"Last known · source unavailable":model.status||"Unknown",model._lastKnown?"fact-stale":""),fact("Association",model.association==="session_name_only"?"Session name only · live identity unverified":model.association||"Unknown"),fact("Source",model.source||"Unknown"),fact("As of",model.as_of||"Unknown"),fact("Overall completion","Unverified by this scope brief","fact-unknown"));
+    }else if(selectedKind==="responsibility_item"){
+      kind=(model&&model._lastKnown?"Last-known":"Dated")+" scope item";title=responsibilityLabels[item.kind]||item.kind;icon="◇";
+      desc="This evidence applies only to the statement below. It does not verify the current pane occupant or completion of the whole mission.";
+      facts.push(fact("Statement",item.text||"Unknown"),fact("Kind",item.kind||"Unknown"),fact("Evidence",item.evidence||"Unknown",model&&model._lastKnown?"fact-stale":""));
+      if(item.outcome)facts.push(fact("Item outcome",item.outcome,item.outcome==="failed"||item.outcome==="blocked"||item.outcome==="partial"?"fact-stale":""));
+      if(item.kind==="approval_gate"){facts.push(fact("Gate decision",responsibilityDecision(item),item.decision==="pending"||!item.decision?"fact-unknown":""));if(item.approver)facts.push(fact("Decision owner",item.approver))}
+      if(item.kind==="handoff"){var handoffRoute=responsibilityHandoffRoute(item,idx[selectedSession]);if(handoffRoute)facts.push(fact("Scope direction",handoffRoute));if(item.direction)facts.push(fact("Direction kind",item.direction));if(item.counterparty)facts.push(fact("Counterparty",item.counterparty))}
+      if(item.check_key)facts.push(fact("Linked check key",item.check_key));
+      facts.push(fact("Source",item.source||"Unknown"),fact("As of",item.as_of||"Unknown"),fact("Brief status",model&&model._lastKnown?"Last known · source unavailable":model&&model.status||"Unknown",model&&model._lastKnown?"fact-stale":""),fact("Association","Session name only · live identity unverified"));
+    }else if(selectedKind==="scope"){
+      kind="DQR scope fact";title=scopeLabels[item.key]||item.key;icon="◇";
+      desc=item.key==="requester"?"This is the named change contact. The chat handle has not been independently matched to this person.":item.key==="stack"?"These packages are declared in the application repository; current use is not observed.":"A sourced fact in this session’s focused scope.";
+      facts.push(fact("Value",item.value||"Unknown"),fact("Evidence",item.evidence||"Unknown"),fact("Source",item.source||"Unknown"),fact("As of",when(item.as_of)));
+    }else if(selectedKind==="edge"||selectedKind==="relation"){
+      kind="Named pipe · "+edgeName(item);title=item.evidence==="computed"?edgeName(item):(item.display||nodeLabel(item.from)+" → "+nodeLabel(item.to));icon="→";
+      desc=nodeLabel(item.from)+" → "+nodeLabel(item.to)+". This "+(item.evidence||"unknown").replace(/_/g," ")+" relationship has its own source and freshness.";
+      if(item.type==="planned_binding"||item.type==="verified_binding")desc+=" A registry binding does not identify the current pane occupant.";
+      if(item.type==="occupies")desc+=" A launcher receipt matched the current pane and process generation at its check time; it expires and must be checked again.";
+      if(item.type==="work_lease")desc+=" This covers a managed edit lease only. Direct shell edits are outside the lease protocol.";
+      if(item.type==="path_claim")desc+=" This is an approved "+item.access+" ownership claim. The canonical path is redacted; a current managed lease is shown separately.";
+      if(item.evidence==="computed")desc+=" Computed from the on-disk routing file and tmux at collection time. The active router configuration and message delivery are unverified.";
+      facts.push(fact("Direction",nodeLabel(item.from)+" → "+nodeLabel(item.to)),fact("Pipe meaning",item.payload||edgePayload(item)),fact("Relationship",edgeName(item)),fact("Evidence",item.evidence||"Unknown"),fact("Source",item.source||"Unknown",item.source?"":"fact-unknown"),fact("Source status",(item.freshness||{}).status||"Unknown",item.stale?"fact-stale":""),fact("As of",when((item.freshness||{}).as_of||(item.freshness||{}).source_mtime),item.stale?"fact-stale":""));
+      if(item.evidence==="computed"&&item.display)facts.push(fact("Snapshot note",item.display));
+      if(item.type==="path_claim")facts.push(fact("Access",item.access));
+      if(item.stale)facts.push(fact("Notice","Last-known pipe retained while its source is unavailable","fact-stale"));
+    }else{
+      kind=item.type+" node";title=nodeDisplayLabel(item);icon={host:"⌂",session:"▣",window:"▤",pane:"▥",channel:"◇",tool:"⚙",skill:"✦",workspace:"▣",file:"▤"}[item.type]||"✦";
+      desc=item.type==="session"?"A durable session name. Its identity card and current pane are separate facts.":item.type==="pane"?"A live terminal pane. Foreground process recognition does not establish agent identity.":item.type==="agent"?"A stable registry identity. Its planned or verified binding does not prove who occupies the current pane.":item.type==="host"?"The host at the top of this terminal branch.":"A named endpoint or container in the network.";
+      facts.push(fact("Declared",tri(item.declared),item.declared===null?"fact-unknown":""));
+      facts.push(fact("Observed",tri(item.observed),item.observed===null?"fact-unknown":""));
+      if(item.type==="chat"&&Number.isSafeInteger(item.local_chat_id))facts.push(fact("Local Messages chat ID",String(item.local_chat_id)));
+      if(item.last_known_declared!==undefined)facts.push(fact("Last-known declaration",tri(item.last_known_declared),"fact-stale"));
+      if(item.last_known_observed!==undefined)facts.push(fact("Last-known observation",tri(item.last_known_observed),"fact-stale"));
+      if(item.identity){facts.push(fact("Card role",item.identity.role||"Unknown",item.stale_fields&&item.stale_fields.includes("identity")?"fact-stale":""));facts.push(fact("Identity card",tri(item.identity.card_present),item.identity.card_present===null?"fact-unknown":""));if(item.identity.card_updated_date)facts.push(fact("Card updated",item.identity.card_updated_date))}
+      var itemModel=item.type==="session"?responsibilityModel(item):null;
+      if(itemModel)facts.push(fact("Scope brief role",itemModel.role||"Unknown",itemModel._lastKnown?"fact-stale":""),fact("Declared mission",itemModel.mission||"Unknown",itemModel._lastKnown?"fact-stale":""),fact("Scope association","Session name only · live identity unverified"),fact("Scope source",(itemModel.source||"Unknown")+" · "+(itemModel.as_of||"Unknown"),itemModel._lastKnown?"fact-stale":""));
+      var duties=item.responsibilities||item.last_known_responsibilities,oldDuties=!item.responsibilities&&!!item.last_known_responsibilities;
+      if(duties&&Array.isArray(duties.items)){duties.items.forEach(function(line,i){facts.push(fact((oldDuties?"Last-known":"Declared")+" duty "+(i+1),line,oldDuties?"fact-stale":""))});facts.push(fact("Duties source",(duties.source||"identity card")+" · "+when(duties.as_of),oldDuties?"fact-stale":""))}
+      if(item.registry&&(item.type==="agent"||item.type==="session")){facts.push(fact("Stable agent ID",item.registry.agent_id||"Unknown"));facts.push(fact("Registry binding",item.registry.state||"Unknown"));facts.push(fact("Registry host",item.registry.host_id||"Unknown"))}
+      if(item.type==="workspace"&&item.registry&&item.registry.access)facts.push(fact("Path claim",item.registry.access+" · path redacted"),fact("Owner session",item.registry.owner_session||"Unknown"));
+      [["kind","Kind"],["group","Group"],["reach","Reach"],["transport","Transport"],["status",item.type==="service"?"Port listener evidence":"Status"]].forEach(function(pair){if(item[pair[0]])facts.push(fact(pair[1],item[pair[0]]))});
+      if(item.type==="agent"&&item.registry)facts.push(fact("Current pane occupant",occupiedNow(item.id)?"Launcher-attested in this snapshot":"Unknown · no current receipt",occupiedNow(item.id)?"":"fact-unknown"));
+      if(item.last_known_registry)facts.push(fact("Last-known registry binding",item.last_known_registry.agent_id+" · "+item.last_known_registry.state,"fact-stale"));
+      if(item.last_known_identity)facts.push(fact("Last-known card role",item.last_known_identity.role||"Unknown","fact-stale"));
+      if(item.state&&item.state.status)facts.push(fact("Declared handoff state",item.state.status+(item.state.updated_date?" · "+item.state.updated_date:""),item.stale_fields&&item.stale_fields.includes("state")?"fact-stale":""));
+      if(item.last_known_state)facts.push(fact("Last-known handoff state",item.last_known_state.status||"Unknown","fact-stale"));
+      if(item.process){facts.push(fact("Observed process",item.process.display||item.process.classification||"Unknown"));facts.push(fact("Classification basis",item.process.basis||"Foreground command"))}
+      if(item.reachability)facts.push(fact("Reachability",item.reachability.replace(/_/g," ")));
+      if(item.last_known_reachability)facts.push(fact("Last-known reachability",item.last_known_reachability.replace(/_/g," "),"fact-stale"));
+      if(item.standard){facts.push(fact("In session standard",tri(item.standard.present),item.standard.present===null?"fact-unknown":""));if(item.standard.source_mtime)facts.push(fact("Standard checked",when(item.standard.source_mtime)))}
+      if(item.root_evidence){var re=item.root_evidence,match=re.card_vs_standard_match!==undefined?re.card_vs_standard_match:re.card_vs_standard_agree;if(match!==undefined)facts.push(fact("Card vs standard root",match===null?"Unknown":match?"Agree":"Different",match===false?"fact-stale":""));if(re.observed_cwd_within_card!==undefined)facts.push(fact("Pane within card root",tri(re.observed_cwd_within_card),re.observed_cwd_within_card===false?"fact-stale":""));if(re.observed_cwd_within_standard!==undefined)facts.push(fact("Pane within standard root",tri(re.observed_cwd_within_standard),re.observed_cwd_within_standard===false?"fact-stale":""));if(re.as_of)facts.push(fact("Root check time",when(re.as_of)));if(re.source_refs)facts.push(fact("Root check sources",re.source_refs.join(" · ")))}
+      if(item.type==="session")scopeFactsFor(item,activeLayer).forEach(function(entry){facts.push(fact(scopeLabels[entry.key]||entry.key,entry.value+" · "+entry.evidence+" · "+entry.source+" · "+when(entry.as_of),entry.evidence==="mismatch"?"fact-stale":""))});
+      facts.push(fact("Sources",(item.source_refs||[]).join(" · ")||"Unknown"));
+      facts.push(fact("Observed at",when(item.observed_at),item.stale?"fact-stale":""));
+      if(item.stale)facts.push(fact("Notice","Last-known node retained while its source is unavailable","fact-stale"));
+    }
+    byId("inspect-icon").textContent=icon;byId("inspect-type").textContent=kind;byId("inspect-title").textContent=title;byId("inspect-desc").textContent=desc;byId("facts").innerHTML=facts.join("");
+    var depth=layerDefs.findIndex(function(l){return l.id===activeLayer}),next=selectedKind==="scope"?layerById(selectedId==="stack"?"capabilities":"identity"):selectedKind==="node"&&selectedSession==="session:DQR"&&item.type==="chat"?layerById("routing"):layerDefs[depth+1];byId("inspect-deeper").hidden=!next;byId("inspect-deeper").dataset.openLayer=next?next.id:"";byId("inspect-deeper").textContent=next?"Open "+next.name+" →":"";
+  }
+  function render(){setStatus();chooseInitial();renderRoster();renderLayerView();if(activeLayer==="terminals"){renderDiagram();renderMobile();if(autoFitTerminal)requestAnimationFrame(fitDiagram)}renderInspector();byId("all-terminals").setAttribute("aria-pressed",allMode?"true":"false");byId("all-lines").setAttribute("aria-pressed",showComputed?"true":"false");byId("all-lines").textContent=showComputed?"Hide computed routes":"Show computed routes";if(byId("creator").open)updateCreatorContext()}
+  function openInspector(){byId("inspector").classList.add("is-open");if(matchMedia("(max-width:780px)").matches)byId("inspect-title").focus({preventScroll:true})}
+  function selectNode(id,openLayer,inspect){selectedKind="node";selectedId=id;allMode=false;var priorSession=selectedSession,idx=nodeIndex(),n=idx[id];while(n&&n.type!=="session"&&n.parent_id)n=idx[n.parent_id];if(n&&n.type==="session")selectedSession=n.id;if(priorSession!==selectedSession)autoFitTerminal=true;if(openLayer)activeLayer=openLayer;if(inspect===false)byId("inspector").classList.remove("is-open");render();if(inspect!==false)openInspector()}
+  function selectScopeFact(key){selectedKind="scope";selectedId=key;allMode=false;render();openInspector()}
+  function selectResponsibilityMission(){var position=byId("layer-view").scrollTop;selectedKind="responsibility_mission";selectedId=selectedSession;allMode=false;render();byId("layer-view").scrollTop=position;openInspector();byId("inspect-title").focus({preventScroll:true})}
+  function selectResponsibilityItem(index){var position=byId("layer-view").scrollTop;selectedKind="responsibility_item";selectedId=String(index);allMode=false;render();byId("layer-view").scrollTop=position;openInspector();byId("inspect-title").focus({preventScroll:true})}
+  function selectEdge(id){selectedKind="edge";selectedId=id;allMode=false;render();openInspector()}
+  function selectRelation(id){selectedKind="relation";selectedId=id;render();openInspector()}
+  function setLayer(id){if(!layerDefs.some(function(l){return l.id===id}))return;if(id==="terminals"&&activeLayer!=="terminals")autoFitTerminal=true;activeLayer=id;allMode=false;selectedKind="node";selectedId=selectedSession;byId("inspector").classList.remove("is-open");render();var tab=byId("layer-tabs").querySelector('[data-layer="'+id+'"]');if(tab){tab.scrollIntoView({inline:"nearest",block:"nearest"});tab.focus({preventScroll:true})}}
+  function guideOpen(open){
+    byId("guide-panel").hidden=!open;
+    byId("guide-toggle").setAttribute("aria-expanded",open?"true":"false");
+    if(open)byId("guide-question").focus();else byId("guide-toggle").focus({preventScroll:true});
+  }
+  function guideEntry(message,kind,meta,target,references){
+    var entry=document.createElement("div"),paragraph=document.createElement("p");entry.className="guide-entry"+(kind==="user"?" user":"");paragraph.textContent=message;entry.appendChild(paragraph);
+    if(meta){var detail=document.createElement("small");detail.textContent=meta;entry.appendChild(detail)}
+    if(Array.isArray(references)&&references.length){var sources=document.createElement("details"),summary=document.createElement("summary");sources.className="guide-sources";summary.textContent="Map evidence ("+references.length+")";sources.appendChild(summary);references.forEach(function(ref){var line=document.createElement("span");line.textContent=(ref.id||ref.kind||"item")+" · "+(ref.evidence||"unknown")+" · "+(Array.isArray(ref.sources)?ref.sources.join(", "):"source unknown");sources.appendChild(line)});entry.appendChild(sources)}
+    if(target){var button=document.createElement("button");button.type="button";button.textContent="Show on map →";button.addEventListener("click",function(){guideWalk(target)});entry.appendChild(button)}
+    byId("guide-log").appendChild(entry);byId("guide-log").scrollTop=byId("guide-log").scrollHeight;
+    while(byId("guide-log").children.length>18)byId("guide-log").firstElementChild.remove();
+    return entry;
+  }
+  function guideTargetElement(kind,id,layer){
+    var attribute=kind==="edge"?"edge":kind==="node"?"node":"layer";
+    var candidates=Array.from(document.querySelectorAll("[data-"+attribute+"]")).filter(function(el){return el.dataset[attribute]===id&&el.getClientRects().length});
+    return candidates.find(function(el){return byId("layer-view").contains(el)})||candidates.find(function(el){return byId("diagram-scroll").contains(el)})||candidates[0]||Array.from(byId("layer-tabs").children).find(function(el){return el.dataset.layer===layer});
+  }
+  async function guideAnimate(target){
+    if(!target||window.matchMedia("(prefers-reduced-motion: reduce)").matches)return;
+    target.scrollIntoView({block:"nearest",inline:"nearest",behavior:"smooth"});
+    await new Promise(function(resolve){requestAnimationFrame(function(){requestAnimationFrame(resolve)})});
+    var start=byId("guide-toggle").getBoundingClientRect(),end=target.getBoundingClientRect();
+    var spark=document.createElement("span");spark.className="guide-spark";spark.textContent="✦";spark.setAttribute("aria-hidden","true");document.body.appendChild(spark);
+    var x=start.left+start.width/2-14,y=start.top+start.height/2-14,dx=end.left+end.width/2-14-x,dy=end.top+end.height/2-14-y;
+    spark.style.left=x+"px";spark.style.top=y+"px";
+    try{await spark.animate([{transform:"translate(0,0) scale(1)",opacity:1},{transform:"translate("+dx+"px,"+dy+"px) scale(.7)",opacity:1}],{duration:650,easing:"cubic-bezier(.25,.8,.25,1)"}).finished}catch(e){}finally{spark.remove()}
+  }
+  async function guideWalk(target){
+    if(!data||demo||data.status==="source_unavailable")return;
+    var layer=target&&target.layer;if(!layerDefs.some(function(item){return item.id===layer}))return;
+    var node=target.kind==="node"&&data.nodes.find(function(item){return item.id===target.id});
+    var edge=target.kind==="edge"&&data.edges.find(function(item){return item.id===target.id});
+    if(target.kind==="node"&&!node||target.kind==="edge"&&!edge||target.kind!=="node"&&target.kind!=="edge"&&target.kind!=="layer"){
+      guideEntry("That item changed in the latest snapshot. Ask again to locate the current evidence.","guide");return;
+    }
+    if(window.matchMedia("(max-width: 780px)").matches)guideOpen(false);
+    if(node)selectNode(node.id,layer,false);
+    else if(edge){
+      var endpoint=data.nodes.find(function(item){return item.id===edge.to})||data.nodes.find(function(item){return item.id===edge.from});
+      if(endpoint)selectNode(endpoint.id,layer,false);else setLayer(layer);
+    }else setLayer(layer);
+    var element=guideTargetElement(target.kind,target.id,layer);await guideAnimate(element);
+    if(node&&data.nodes.some(function(item){return item.id===node.id}))selectNode(node.id,layer,true);
+    else if(edge&&data.edges.some(function(item){return item.id===edge.id}))selectEdge(edge.id);
+    else if(target.kind==="layer")byId("stage-title").focus({preventScroll:true});
+  }
+  function guideBrowserSummary(question){
+    var terms={route:"routing",routing:"routing",chat:"routing",message:"routing",assigned:"identity",role:"identity",identity:"identity",pane:"runtime",process:"runtime",tmux:"runtime",tool:"capabilities",skill:"capabilities",memory:"instructions",instruction:"instructions",service:"services",api:"services",network:"network",tailscale:"network",workspace:"state",lease:"state",deploy:"deployment",terminal:"terminals"};
+    var words=(question.toLowerCase().match(/[a-z]+/g)||[]),layer=words.map(function(word){return terms[word]}).find(Boolean)||activeLayer;
+    var picked=data.nodes.find(function(node){return node.type==="session"&&node.label&&question.toLowerCase().includes(node.label.toLowerCase())})||data.nodes.find(function(node){return node.id===selectedSession});
+    var chosenEdge=data.edges.find(function(edge){return edge.id===selectedId});
+    var refs=[],lines=["The "+layer+" layer: "+layerDefs.find(function(item){return item.id===layer}).description];
+    if(picked){
+      refs.push({id:picked.id,kind:"node",evidence:picked.observed===true?"observed":picked.declared===true?"declared":"unknown",sources:picked.source_refs||[]});
+      lines.push(picked.label+" is "+(picked.observed===true?"observed as a tmux session":"present as a declared or last-known session")+" in this snapshot.");
+      if(layer==="identity"&&picked.identity){lines.push("Its identity card role is "+(picked.identity.role||"unknown")+". A role label does not verify who occupies the pane.")}
+      if(layer==="routing"){
+        var routes=data.edges.filter(function(edge){return (edge.from===picked.id||edge.to===picked.id)&&["chat_routes_to","router_addressable","router_agent_pane_ready","hands_off_to"].includes(edge.type)}).slice(0,3);
+        routes.forEach(function(edge){lines.push(edge.type+" · "+(edge.evidence||"unknown")+" · "+(edge.freshness&&edge.freshness.status||"status unknown"));refs.push({id:edge.id,kind:"edge",evidence:edge.evidence||"unknown",sources:[edge.source||"unknown"]})});
+        lines.push(routes.length?"These routes do not prove a message was delivered.":"No route for this session appears in the current snapshot.");
+      }
+    }
+    if(chosenEdge){refs.push({id:chosenEdge.id,kind:"edge",evidence:chosenEdge.evidence||"unknown",sources:[chosenEdge.source||"unknown"]});lines.push("Selected relationship: "+(chosenEdge.display||chosenEdge.type)+" · "+(chosenEdge.evidence||"unknown")+".")}
+    return {answer:lines.join(" "),navigate:chosenEdge?{kind:"edge",id:chosenEdge.id,layer:layer}:picked?{kind:"node",id:picked.id,layer:layer}:{kind:"layer",id:layer,layer:layer},references:refs,snapshot_status:data.status,collected_at:data.collected_at,mode:"browser-summary"};
+  }
+  var guideBusy=false;
+  async function guideAsk(question){
+    question=String(question||"").trim();if(!question||guideBusy)return;
+    if(!data||demo||data.status==="demo"){guideEntry("This tour is synthetic. Refresh the live snapshot before asking about real infrastructure.","guide");return}
+    if(data.status==="source_unavailable"){guideEntry("The live snapshot is unavailable. Refresh the map and try again.","guide");return}
+    guideBusy=true;byId("guide-send").disabled=true;guideEntry(question,"user");
+    var pending=guideEntry("Checking the current map evidence…","guide");
+    var controller=new AbortController(),timer=setTimeout(function(){controller.abort()},20000);
+    try{
+      var response=await fetch("/api/fleet-explain",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question:question,focus_id:(selectedKind==="node"||selectedKind==="edge")?selectedId:selectedSession,layer:activeLayer}),cache:"no-store",signal:controller.signal});
+      var result=response.status===405?guideBrowserSummary(question):await response.json();if(!response.ok&&response.status!==405)throw Error(result.error||"Guide unavailable");
+      pending.remove();
+      var refs=Array.isArray(result.references)?result.references:[];
+      var meta=(result.mode==="local-model"?"Local model · ":result.mode==="browser-summary"?"Map summary · ":"Source-backed summary · ")+(result.snapshot_status||"unknown")+" snapshot · "+(result.collected_at||"time unknown")+" · "+refs.length+" cited map objects";
+      guideEntry(result.answer||"No answer in this snapshot.","guide",meta,result.navigate,refs);
+      if(result.navigate)await guideWalk(result.navigate);
+    }catch(e){pending.remove();guideEntry(e.name==="AbortError"?"The local explanation timed out. Try again.":"The guide could not answer from the current snapshot. Refresh and try again.","guide")}
+    finally{clearTimeout(timer);guideBusy=false;byId("guide-send").disabled=false}
+  }
+  byId("guide-toggle").addEventListener("click",function(){guideOpen(byId("guide-panel").hidden)});
+  byId("guide-close").addEventListener("click",function(){guideOpen(false)});
+  byId("guide-form").addEventListener("submit",function(ev){ev.preventDefault();var input=byId("guide-question"),question=input.value;input.value="";guideAsk(question)});
+  byId("guide-panel").addEventListener("click",function(ev){var prompt=ev.target.closest("[data-guide-prompt]");if(prompt)guideAsk(prompt.dataset.guidePrompt)});
+  async function refresh(){
+    demo=false;var serial=++requestSerial;byId("refresh").disabled=true;
+    try{var res=await fetch("/api/fleet-map",{cache:"no-store"}),next=await res.json();if(serial!==requestSerial||demo)return;
+      if(!res.ok&&next.status!=="source_unavailable")throw Error("unavailable");
+      data=next;
+    }catch(e){if(serial!==requestSerial||demo)return;if(data&&data.status!=="demo"){data=Object.assign({},data,{status:"stale"})}else data={schema_version:"agent-fleet.snapshot.v1",collected_at:null,status:"source_unavailable",nodes:[],edges:[],summary:{},unknowns:[{kind:"source_unavailable",source:"collector"}]}}
+    finally{if(serial===requestSerial)byId("refresh").disabled=false}
+    render();
+  }
+  function synthetic(){requestSerial++;demo=true;data=JSON.parse(JSON.stringify(fixture));selectedSession=null;selectedId=null;selectedKind="node";render()}
+  function creatorContext(){
+    var idx=nodeIndex(),session=idx[creatorSessionId],host=session?idx[session.parent_id]:null,pane=idx[creatorPaneId];
+    return {session:session,host:host,pane:pane,hostId:host&&host.id.startsWith("host:")?host.id.slice(5):null,revision:data&&data.summary?data.summary.registry_revision:null};
+  }
+  function creatorIssue(c){
+    if(!data||data.status==="source_unavailable"||data.status==="stale")return "The live map is unavailable or stale. Refresh before drafting.";
+    if(demo||data.status==="demo")return "This is an illustrative tour. Open a live registry-backed map to make an applyable draft.";
+    if(!c.session||!c.host||c.host.observed!==true||!(c.host.source_refs||[]).includes("tmux")||c.session.observed!==true||c.session.stale||(c.session.stale_fields||[]).includes("observed"))return "Select a currently observed local session or pane. Remote and last-known terminals cannot be adopted here.";
+    if(!/^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(c.hostId||"")||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(c.session.label))return "This host or session name is outside the collector's safe-name format. Use the CLI to review it.";
+    if(c.session.registry&&c.session.registry.state!=="retired")return "This session already has a "+c.session.registry.state+" binding ("+c.session.registry.agent_id+"). Choose another session.";
+    if(!Number.isSafeInteger(c.revision)||c.revision<0)return "Registry revision is unavailable. Connect the registry join before drafting.";
+    if(!((data.sources||[]).some(function(s){return s.id==="registry"&&s.status==="available"})))return "Registry source is unavailable. Refresh after it is readable.";
+    if(!c.session.identity||c.session.identity.card_present===null||(c.session.stale_fields||[]).includes("identity"))return "Identity card source is unknown or stale. Refresh before editing a card.";
+    return null;
+  }
+  function creatorMessage(message,good){var box=byId("creator-status");box.textContent=message;box.classList.toggle("good",!!good)}
+  function updateCreatorContext(){
+    var c=creatorContext(),issue=creatorIssue(c),items=[["Host",c.host?c.host.label:"Unknown"],["Session",c.session?c.session.label:"Unavailable"],["Selected pane",c.pane?c.pane.label:"Session level"],["Card now",c.session&&c.session.identity?((c.session.identity.role||"Unknown")+" · "+(c.session.identity.card_present?"present":"missing")):"Unknown"],["Registry revision",Number.isSafeInteger(c.revision)?String(c.revision):"Unavailable"],["Binding now",c.session&&c.session.registry?c.session.registry.agent_id+" · "+c.session.registry.state:"None"]];
+    byId("creator-context").innerHTML=items.map(function(x){return '<div><dt>'+esc(x[0])+'</dt><dd>'+esc(x[1])+'</dd></div>'}).join("");
+    var cardPresent=!!(c.session&&c.session.identity&&c.session.identity.card_present===true);
+    byId("creator-role").querySelector('option[value="preserve"]').disabled=!cardPresent;
+    if(!cardPresent&&byId("creator-role").value==="preserve")byId("creator-role").value="assigned";
+    byId("creator-root-help").textContent=cardPresent||(c.session&&c.session.standard&&c.session.standard.present===true)?"Optional. Leave blank to use the existing card or session standard root. No path is sent to Fleetdeck.":"Required: this live-only session has no known card or standard root. Enter an existing absolute directory.";
+    byId("creator-build").disabled=!!issue;
+    if(creatorDraft&&(issue||creatorRevision!==c.revision||creatorDraft.session_name!==(c.session||{}).label)){
+      clearCreatorReview();creatorMessage(issue||"The source changed since this draft was reviewed. Review it again against the current revision.",false);
+    }else if(issue)creatorMessage(issue,false);
+    else if(!creatorDraft)creatorMessage("Ready to draft a planned binding at registry revision "+c.revision+". This will not start or verify a process.",true);
+  }
+  function clearCreatorReview(){creatorDraft=null;creatorRevision=null;creatorFilename=null;byId("creator-review").hidden=true;byId("creator-json").textContent="";byId("creator-commands").textContent=""}
+  function openCreator(ev){
+    var idx=nodeIndex(),selected=idx[selectedId];creatorSessionId=selectedSession;
+    creatorPaneId=selected&&selected.type==="pane"?selected.id:null;
+    creatorReturnFocus=ev&&ev.currentTarget instanceof HTMLElement?ev.currentTarget:byId("new-agent");
+    clearCreatorReview();byId("creator-agent-id").value="";
+    ["owner","concern","owns","refuses","approval","root"].forEach(function(k){byId("creator-"+k).value=""});
+    var c=creatorContext(),card=(c.session||{}).identity||{};
+    byId("creator-role").value=card.card_present===true&&card.role==="assigned"?"preserve":"assigned";
+    updateCreatorFields();
+    byId("creator").showModal();updateCreatorContext();byId("creator-agent-id").focus();
+  }
+  function closeCreator(){byId("creator").close();if(creatorReturnFocus)creatorReturnFocus.focus()}
+  function updateCreatorFields(){
+    var role=byId("creator-role").value;
+    byId("creator-card-fields").hidden=role==="preserve";
+    ["concern","owns","refuses"].forEach(function(k){byId("creator-assigned-"+k).hidden=role!=="assigned"});
+  }
+  function cardLines(id){
+    var lines=byId("creator-"+id).value.split(/\r?\n/).map(function(x){return x.trim()}).filter(Boolean);
+    if(lines.length>20||lines.some(function(x){return x.length>240||x.startsWith("#")||/[\x00-\x08\x0b-\x1f]/.test(x)}))throw Error("Use at most 20 short, non-heading lines for "+id+".");
+    return lines;
+  }
+  function buildCreatorDraft(){
+    var c=creatorContext(),issue=creatorIssue(c);if(issue)throw Error(issue);
+    var agentId=byId("creator-agent-id").value.trim(),role=byId("creator-role").value;
+    if(!/^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(agentId))throw Error("Stable agent ID must start with a letter and contain only letters, digits, dot, underscore, or hyphen (64 characters maximum).");
+    if(role==="preserve"&&c.session.identity.card_present!==true)throw Error("A card must exist before it can be preserved.");
+    var owner=byId("creator-owner").value.trim(),concern=role==="assigned"?byId("creator-concern").value.trim():"",owns=role==="assigned"?cardLines("owns"):[],refuses=role==="assigned"?cardLines("refuses"):[],approval=cardLines("approval"),root=byId("creator-root").value.trim();
+    if(role==="assigned"&&(!owner||owner.includes("UNVERIFIED")||!concern||concern.includes("UNVERIFIED")||!owns.length||!refuses.length||owns.some(function(x){return x.includes("UNVERIFIED")})||refuses.some(function(x){return x.includes("UNVERIFIED")})))throw Error("Assigned cards require an explicit Owner, concern, at least one Owns item, and at least one Refuses boundary without UNVERIFIED placeholders.");
+    if([owner,concern,root].some(function(v){return /[\x00-\x1f]/.test(v)}))throw Error("Fields must be single-line text.");
+    if(root&&!root.startsWith("/"))throw Error("Workspace root must be an absolute directory path.");
+    if(role!=="preserve"&&!root&&c.session.identity.card_present!==true&&!(c.session.standard&&c.session.standard.present===true))throw Error("Enter an absolute workspace root for a session without a card or standard declaration.");
+    var draft={schema_version:"agent-fleet.adoption-draft.v1",host_id:c.hostId,session_name:c.session.label,agent_id:agentId,expected_revision:c.revision,role:role};
+    if(role!=="preserve"){
+      draft.owner=owner;draft.concern=concern;draft.owns=owns;draft.refuses=refuses;draft.approval=approval;
+      if(root)draft.root=root;
+    }
+    return draft;
+  }
+  function reviewCreator(){
+    try{
+      var draft=buildCreatorDraft();creatorDraft=draft;creatorRevision=draft.expected_revision;
+      var random=new Uint8Array(6);crypto.getRandomValues(random);
+      creatorFilename="fleet-adoption-"+draft.agent_id+"-r"+draft.expected_revision+"-"+Array.from(random,function(v){return v.toString(16).padStart(2,"0")}).join("")+".json";
+      var card=draft.role==="preserve"?"Preserve existing card byte for byte":((creatorContext().session.identity.card_present?"Update":"Create")+" "+draft.role+" card");
+      var rows=[["Registry revision",draft.expected_revision+" → "+(draft.expected_revision+1)],["Agent binding","None → "+draft.agent_id+" · planned"],["Session",draft.host_id+" / "+draft.session_name],["Identity card",card]];
+      if(draft.role!=="preserve")rows.push(["Card content",(draft.owner||"No owner")+" · "+(draft.concern||"No concern")+" · "+draft.owns.length+" Owns · "+draft.refuses.length+" Refuses · "+draft.approval.length+" approval rules"],["Root",draft.root||"Existing card/standard root"]);
+      byId("creator-diff").innerHTML=rows.map(function(x){return '<div><dt>'+esc(x[0])+'</dt><dd class="added">'+esc(x[1])+'</dd></div>'}).join("");
+      byId("creator-review-note").textContent=draft.role==="preserve"?"The registry gets one planned binding. The identity card is validated and preserved byte for byte. The CLI dry run shows the authoritative diff before Apply.":"The registry gets one planned binding and the identity card is authored in the same transaction. The CLI dry run validates both and shows the authoritative diff before Apply. Chat routes are unchanged.";
+      byId("creator-json").textContent=JSON.stringify(draft,null,2);
+      var draftPath="~/Downloads/"+creatorFilename;
+      byId("creator-commands").textContent="~/bin/tm-fleet-registry adopt --draft-file "+draftPath+" --dry-run --json\n~/bin/tm-fleet-registry adopt --draft-file "+draftPath+" --apply --json";
+      byId("creator-review").hidden=false;creatorMessage("Draft ready at revision "+draft.expected_revision+". Run the dry run and inspect its result before Apply.",true);
+      byId("creator-review").scrollIntoView({block:"nearest"});
+    }catch(e){clearCreatorReview();creatorMessage(e.message||"Draft validation failed.",false)}
+  }
+  function downloadCreator(){
+    if(!creatorDraft)return;
+    var blob=new Blob([JSON.stringify(creatorDraft,null,2)+"\n"],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");
+    a.href=url;a.download=creatorFilename;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url)},1000);
+  }
+  byId("new-agent").addEventListener("click",openCreator);
+  byId("inspector-new-agent").addEventListener("click",openCreator);
+  byId("creator-close").addEventListener("click",closeCreator);
+  byId("creator-cancel").addEventListener("click",closeCreator);
+  byId("creator").addEventListener("click",function(ev){if(ev.target===this)closeCreator()});
+  byId("creator-role").addEventListener("change",function(){updateCreatorFields();clearCreatorReview();updateCreatorContext()});
+  byId("creator").addEventListener("input",function(ev){if(ev.target.matches("input,textarea")){clearCreatorReview();updateCreatorContext()}});
+  byId("creator-build").addEventListener("click",reviewCreator);
+  byId("creator-download").addEventListener("click",downloadCreator);
+  async function copyCreatorCommand(index){
+    if(!creatorDraft)return;
+    try{await navigator.clipboard.writeText(byId("creator-commands").textContent.split("\n")[index]);creatorMessage(index===0?"Dry-run command copied. Inspect its output before Apply.":"Apply command copied. Run it only after inspecting the dry-run output.",true)}
+    catch(e){creatorMessage("Clipboard unavailable. Select the command above to copy it.",false)}
+  }
+  byId("creator-copy-dry").addEventListener("click",function(){copyCreatorCommand(0)});
+  byId("creator-copy-apply").addEventListener("click",function(){copyCreatorCommand(1)});
+  document.addEventListener("click",function(ev){var session=ev.target.closest("[data-session]"),node=ev.target.closest("[data-node]"),edge=ev.target.closest("[data-edge]"),rel=ev.target.closest("[data-relation]"),scope=ev.target.closest("[data-scope]"),mission=ev.target.closest("[data-responsibility-mission]"),responsibility=ev.target.closest("[data-responsibility-item]"),layer=ev.target.closest("[data-layer]"),expand=ev.target.closest("[data-expand-layer]");if(session){byId("roster-panel").classList.remove("is-open");byId("roster-toggle").setAttribute("aria-expanded","false");byId("roster-toggle").textContent="Browse sessions";selectNode(session.dataset.session,"overview",false);return}if(node){selectNode(node.dataset.node,node.dataset.openLayer);return}if(edge){selectEdge(edge.dataset.edge);return}if(rel){selectRelation(rel.dataset.relation);return}if(scope){selectScopeFact(scope.dataset.scope);return}if(mission){selectResponsibilityMission();return}if(responsibility){selectResponsibilityItem(responsibility.dataset.responsibilityItem);return}if(layer){setLayer(layer.dataset.layer);return}if(expand){expandedLayers[expand.dataset.expandLayer]=!expandedLayers[expand.dataset.expandLayer];render()}});
+  document.addEventListener("keydown",function(ev){var el=ev.target.closest(".wire[data-edge],.wire[data-node],.dqr-wire[data-edge]");if(el&&(ev.key==="Enter"||ev.key===" ")){ev.preventDefault();if(el.dataset.edge)selectEdge(el.dataset.edge);else selectNode(el.dataset.node)}});
+  byId("search").addEventListener("input",renderRoster);
+  byId("refresh").addEventListener("click",refresh);
+  byId("demo").addEventListener("click",synthetic);
+  byId("empty-demo").addEventListener("click",synthetic);
+  byId("all-terminals").addEventListener("click",function(){allMode=!allMode;render()});
+  byId("all-lines").addEventListener("click",function(){showComputed=!showComputed;render()});
+  byId("roster-toggle").addEventListener("click",function(){var open=byId("roster-panel").classList.toggle("is-open");this.setAttribute("aria-expanded",open?"true":"false");this.textContent=open?"Close list":"Browse sessions"});
+  byId("inspect-close").addEventListener("click",function(){byId("inspector").classList.remove("is-open");var current=byId("layer-tabs").querySelector('[aria-pressed="true"]');if(current)current.focus({preventScroll:true})});
+  byId("inspect-deeper").addEventListener("click",function(){if(this.dataset.openLayer)setLayer(this.dataset.openLayer)});
+  document.addEventListener("keydown",function(ev){if(ev.key==="Escape"&&byId("inspector").classList.contains("is-open")){byId("inspector").classList.remove("is-open");ev.preventDefault()}});
+  function setZoom(value){zoom=Math.max(.25,Math.min(1.5,Math.floor(value*100)/100));byId("diagram").style.zoom=Math.round(zoom*100)+"%";byId("zoom-level").textContent=Math.round(zoom*100)+"%"}
+  function fitDiagram(){var scroll=byId("diagram-scroll");if(!scroll.hidden&&scroll.clientWidth)setZoom(Math.min(1,(scroll.clientWidth-24)/960))}
+  byId("zoom-out").addEventListener("click",function(){autoFitTerminal=false;setZoom(zoom-.1)});
+  byId("zoom-in").addEventListener("click",function(){autoFitTerminal=false;setZoom(zoom+.1)});
+  byId("zoom-fit").addEventListener("click",function(){autoFitTerminal=true;fitDiagram()});
+  byId("diagram-toggle").addEventListener("click",function(){var stage=byId("stage"),open=stage.classList.toggle("diagram-open");this.setAttribute("aria-expanded",open?"true":"false");this.textContent=open?"Hide full graph ↑":"Full graph ↗";if(open){renderDiagram();if(autoFitTerminal)requestAnimationFrame(fitDiagram)}});
+  window.addEventListener("resize",function(){if(activeLayer==="terminals"&&autoFitTerminal)fitDiagram()});
+  document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible"&&!demo)refresh()});
+  setInterval(function(){if(document.visibilityState==="visible"&&!demo)refresh()},12000);
+  refresh();
+})();
+</script>
+</body>
+</html>
