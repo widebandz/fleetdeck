@@ -1,4 +1,4 @@
-# fleetdeck — `1.2.0`
+# fleetdeck — `1.3.0`
 
 **Your Mac's servers and launchd agents, as one launcher board on your phone.**
 Plus the tmux fleet as a chat, and a direct line to the fleet steward. Tailnet-only,
@@ -12,10 +12,25 @@ Two browser surfaces for one Mac, reachable from a phone over Tailscale:
 | **chat** | 8783 | The whole **tmux fleet as a Messages-style thread list**. Tap a session, get a live writable terminal. |
 | **skin** | per app | Optional. Fronts an app you *cannot* edit — a container — so it installs with your icon and palette. Idle until you configure one. |
 | **adopt** | 8793 | Paste a repo URL, read the plan, press Adopt. Loopback only by default — it installs software. |
+| **fleet map** | opt-in, own port | A read-only, metadata-only picture of the tmux fleet. Off unless `FLEETDECK_FLEET_MAP=1`, and meant to run as its own listener. |
 
-New in 1.2.0: the simple screen (`/phone`), a per-device home toggle, and a
-CALL key that reaches Trace's live voice surface in the cockpit app. Details in
-[Two front doors](#two-front-doors) below.
+New in 1.3.0, both halves of what this machine actually serves:
+
+- **The phone surface behaves like one installed app.** Every key stays inside
+  the standalone shell instead of handing the phone to a Custom Tab —
+  [One installed app](#one-installed-app).
+- **Two new surfaces of its own**, Notes and Cashflow, served from this origin
+  for that same reason.
+- **A chat input dock** — the keys a software keyboard does not have, routed
+  through tmux rather than faked into the terminal.
+- **The fleet map** — [The fleet map](#the-fleet-map).
+- **CALL opens the native Messages thread.** It used to open a voice surface on
+  the cockpit; Trace is talked to over iMessage, so a second inbox meant
+  reading half a conversation in each. The handle is the one the Mac sends
+  *from*.
+
+1.2.0 brought the simple screen (`/phone`) and the per-device home toggle —
+[Two front doors](#two-front-doors).
 
 Plus one internal: **:8784**, a loopback-only `ttyd` that is the chat's terminal
 backend. It is never reachable directly — `chat_server.py` proxies it under `/t`.
@@ -147,6 +162,72 @@ registry the board uses. A registered service that is down still gets its key,
 dimmed and labelled: hiding it would make a dead service and an unregistered one
 look identical from the one screen most likely to be opened when something is
 wrong.
+
+---
+
+## One installed app
+
+An origin is scheme **plus host plus port**, so every service on this machine is
+cross-origin to the portal. Installed to a home screen, that is not a detail:
+Android answers a cross-origin tap by dropping the app out of standalone mode
+into a Custom Tab with an address bar, and the surface you installed is gone
+until you come back and re-open it.
+
+`/app/<id>` keeps the top-level document on this origin and frames the service
+inside it. No proxying and no path rewriting — a frame resolves its own URLs
+against its own origin, so the service never learns it is framed.
+
+```
+/app/chat  /app/messages  /app/cockpit  /app/graph  /app/terminal  /app/pm
+/app/netmap
+```
+
+The set is **closed and keyed by registry id** (`SHELLED_APPS`), so nothing in
+a request names a URL. Permissions a framed document cannot inherit are granted
+by name and per app: `cockpit` gets `microphone` because that is where Trace
+listens, and it is the only one that does.
+
+All seven were loaded in a real cross-origin frame before being added, including
+the one most likely to fail — `chat` frames its own `ttyd` terminals, so it is a
+frame inside a frame with a live websocket at the bottom.
+
+Two surfaces here are this server's own, for the same reason:
+
+| path | what it is |
+|---|---|
+| `/notes` | Capture for voice-note transcripts and half-formed ideas. Four fields, a closed status set, and the original text kept verbatim on every path in. One validating door, written for a caller that may be wrong. |
+| `/cashflow` | The accountant session's cash view, read from `~/finance-ops/cashflow.html` **per request** so it is never a copy taken at boot. The Fleetdeck bar is injected at serve time and never written back into the agent's file. |
+
+Also on the simple screen: the moving Wideband mark under the clock
+(`assets/wb-logo-256.mp4`, re-encoded to 235KB rather than the 6MB master), and
+cross-document **view transitions** — three declarations of CSS, no JavaScript,
+and inert where unsupported.
+
+---
+
+## The fleet map
+
+A read-only picture of the tmux fleet: sessions, panes, what each one declares
+versus what is actually observed, and the links between them.
+
+**It is off by default** and gated on `FLEETDECK_FLEET_MAP=1`, because the
+portal is visible to every permitted tailnet peer and this page reveals private
+session topology even though it only reads. It is meant to run as a **separate
+listener on its own port** — in that mode the process refuses every inherited
+portal route, including the ones that can read pane and chat content, and
+accepts exactly one POST: `/api/fleet-explain`, which answers questions about
+the snapshot already on screen.
+
+Setup, environment variables and the collector contract are in
+[`FLEET_MAP_PREVIEW.md`](FLEET_MAP_PREVIEW.md); the layer model is in
+[`FLEET_MAP_LAYERS.md`](FLEET_MAP_LAYERS.md).
+
+`frame-ancestors` names exactly one origin — this portal, on this machine,
+behind the same tailnet gate. It was `'none'`, which correctly refuses *every*
+framer including this server's own, and that is why the map was the last surface
+breaking the installed app out of fullscreen. Everything else in that header is
+untouched: `default-src 'none'`, `connect-src 'self'`, `base-uri 'none'`,
+`form-action 'none'`.
 
 ---
 
@@ -444,6 +525,21 @@ in the chat's list header:
 | **LIVE** (default) | `new-session -A -s <name>` | browser becomes newest client, `window-size latest` hands it the size. A desktop tile reshapes to the phone while the tab is open and **snaps back when it closes**. |
 | **PEEK** | `attach -f ignore-size,read-only -t <name>` | session keeps its geometry, drops keystrokes. Watch an agent without touching it. Cost: tmux pads unused rows with `·`. |
 
+**An iOS software keyboard has no terminal in it.** No Esc, no Tab, no Ctrl, no
+arrows, nothing to scroll `xterm` with, and a clipboard the page mostly cannot
+read — so the chat was readable on a phone and barely operable. The **⌨ button**
+adds a key bar, a Messages-style composer and scrollback buttons under the
+thread: on by default below 720px, off above it, and **hidden entirely in peek**,
+because peek's promise is that looking costs the session nothing and a send
+button would break it.
+
+Every key goes **through tmux** (`/api/send`, `/api/scroll`), never as a
+synthetic keystroke into the iframe. Faking events into `ttyd`'s `xterm` would
+bind this to the internals of a bundle that moves on every upgrade; tmux is
+already how this server reads the fleet. Key names are allowlisted, and the
+session name is matched **exactly** against `list-sessions` — tmux treats an
+unmatched `-t` as a pattern, which is how a typo reaches the wrong session.
+
 **Don't hardcode `/opt/homebrew`.** Intel Macs put brew in `/usr/local`, and
 launchd runs with a PATH containing neither. `chat_server.py` resolves `tmux`
 and `ttyd` via `shutil.which()` with both as fallbacks; the plists set an
@@ -454,6 +550,27 @@ literal `__ROOT__` to a comparison or a comment it will be rewritten too. The
 drift check builds the token at runtime (`printf '__%s__' ROOT`) for exactly
 this reason.
 
+**A POST refused before its body is read leaves those bytes in the socket.**
+Direct, nothing notices — the client is closing the connection anyway, which is
+why this went unseen. Through `tailscale serve` the proxy keeps the backend
+connection alive and sends the next request down the same one, where it lands on
+the tail of the last request's JSON: the server parses `"history": []}` as a
+request line, answers `400`, and the failure is blamed on whichever innocent
+page happened to be next. **Every early refusal must call `_discard_body()`
+first** — and only the ones that refuse *before* reading, since draining a body
+already consumed blocks on a socket with nothing left to give. There is a
+structural check for this in `test_fleet_map.py`: two requests down one
+connection, asserting the second is answered on its own terms.
+
+**A connect timeout stays on the socket as a read timeout.**
+`create_connection`'s timeout is a CONNECT deadline, but it remains as a
+per-read deadline afterwards — so the 10s meant for "is anything listening" was
+also being applied to every gap between chunks, and the skin front was hanging
+up on a local LLM that thinks for tens of seconds before its first token. The
+socket now gets an explicit read timeout once the connection is through:
+900s, overridable with `FLEETDECK_SKIN_READ_TIMEOUT`. Finite on purpose — a
+wedged upstream must not be able to pin a thread forever.
+
 ---
 
 ## Layout
@@ -463,11 +580,16 @@ config.json          identity, ports, agent filters      ← edit this
 services.json        the tile registry, hot-reloaded     ← and this
 glyphs.json          the line-glyph library              ← and this, to add icons
 assets/glyphs/       every glyph, pre-rendered           ← so a clone needs no browser
-portal_server.py     discovery + page + PWA + agent API
+portal_server.py     discovery + page + PWA + agent API + the framed surfaces
 adopt.py             clone, read, plan, install  (engine + CLI)
 adopt_server.py      the paste-a-URL surface
-chat_server.py       tmux thread list + ttyd proxy
+chat_server.py       tmux thread list + ttyd proxy + the input dock
 skin_server.py       dresses apps you cannot edit
+fleet_map.html       the fleet map page (opt-in, metadata only)
+fleet_map_reader.py  validates a collector snapshot before it is served
+fleet_map_infra.py   the layered infrastructure projection
+fleet_explainer.py   answers questions about the snapshot on screen
+assets/wb-logo-256.mp4  the moving mark under the clock (235KB)
 make-icons.py        glyphs.json → home-screen PNGs
 skins/*.css          per-app palette overrides
 icons/               generated PNGs (git-ignored)
