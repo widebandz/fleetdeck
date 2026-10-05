@@ -65,6 +65,11 @@ brought under `main`. Versions 1.0–1.2 were merged on the day they were cut;
   whichever page came next. All early-refusal sites now drain first — and only
   those that refuse before the read. Covered by a structural check that sends
   two requests down one connection.
+- **An authorised POST on an onboarding install no longer hangs.** The control
+  gate drained every body before checking authorisation, so the requests it was
+  about to *allow* arrived at their route with nothing left to read — and a read
+  on an empty socket blocks rather than failing, which is why this never showed
+  up as an error. The drain now happens only on the path that refuses.
 - **The skin front no longer hangs up on a slow upstream.**
   `create_connection`'s timeout stays on the socket as a per-read deadline, so
   10s meant for "is anything listening" was also applied to every gap between

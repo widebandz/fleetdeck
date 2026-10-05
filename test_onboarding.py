@@ -93,6 +93,27 @@ class OnboardingTests(unittest.TestCase):
             b"operator:long-private-control-token").decode()
         self.assertEqual(self.request("/board", auth=auth)[0], 200)
 
+    def test_authorised_post_still_has_a_body_to_read(self):
+        """The control gate must drain only on the path where it refuses.
+
+        Draining before the authorisation check also emptied the body of every
+        request that was about to be allowed through, and the route behind the
+        gate then read a socket with nothing left in it — which blocks rather
+        than failing. So the symptom was not an error: an authorised POST on an
+        onboarding install simply never answered. A timeout here is that bug.
+        """
+        portal.CONTROL_TOKEN = "long-private-control-token"
+        auth = "Basic " + base64.b64encode(
+            b"operator:long-private-control-token").decode()
+        self.assertEqual(self.request("/api/dispatch", {})[0], 401)
+        try:
+            code, body = self.request("/api/dispatch", {"text": "hello"}, auth=auth)
+        except (TimeoutError, urllib.error.URLError, OSError) as exc:
+            self.fail("an authorised POST never answered (%r) — the gate drained "
+                      "its body before the route could read it" % (exc,))
+        self.assertEqual(code, 400)
+        self.assertEqual(json.loads(body), {"error": "target and text are required"})
+
     def test_config_url_is_safe_and_escaped(self):
         portal.CONF["onboarding"]["os_name"] = "<script>alert(1)</script>"
         portal.CONF["onboarding"]["first_project_url"] = "javascript:alert(1)"

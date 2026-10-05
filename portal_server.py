@@ -4899,8 +4899,14 @@ class Handler(BaseHTTPRequestHandler):
         if onboarding_config() and path not in (
                 "/api/notes", "/api/notes/status", "/api/notes/edit",
                 "/api/notes/delete"):
-            self._discard_body()
             if not control_authorized(self.headers.get("Authorization")):
+                # Drained INSIDE the refusal, not before the check. Draining
+                # first also drained the bodies of requests that were about to
+                # be allowed through, and the route behind this gate then read
+                # a socket with nothing left in it — which blocks rather than
+                # failing, so an authorised POST on an onboarding install hung
+                # instead of answering.
+                self._discard_body()
                 return self._control_refusal()
 
         # Speech is a POST because the text can be long, and a proxy rather than
