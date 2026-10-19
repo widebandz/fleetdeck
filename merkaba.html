@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Two Eyes — an Ibn Arabi framework</title>
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --ink:#d8dde6; --dim:#7d8795; --faint:#434d5a;
+  --aql:#7fb3d8;      /* reason — the distinguishing eye */
+  --khayal:#e0a44a;   /* imagination — the joining eye */
+  --both:#5fd3c4;     /* where they meet */
+  --line:#1b2027;
+}
+html,body{height:100%;background:#000;color:var(--ink);
+  font:16px/1.7 ui-serif,Georgia,"Times New Roman",serif;-webkit-font-smoothing:antialiased}
+body{overflow:hidden}
+/* ── the dark ──────────────────────────────────────────────────────────
+   Vast, and deliberately not black-on-black decoration: the field is empty
+   so the one lit thing in it is unmistakably the way in. */
+#space{position:fixed;inset:0;display:grid;place-items:center;padding:24px;
+  background:radial-gradient(ellipse 120% 80% at 50% 50%,#07090d 0%,#000 70%)}
+#stars{position:fixed;inset:0;pointer-events:none;opacity:.5}
+#enter{appearance:none;background:none;border:0;padding:16px;cursor:pointer;
+  display:grid;place-items:center;gap:22px;color:inherit;font:inherit;max-width:420px}
+#enter:focus-visible{outline:2px solid var(--both);outline-offset:10px;border-radius:12px}
+#mk{width:min(62vw,260px);height:min(62vw,260px);display:block;overflow:visible}
+#mk .up{stroke:var(--khayal)}
+#mk .dn{stroke:var(--aql)}
+#mk polygon{fill:none;stroke-width:1.1;vector-effect:non-scaling-stroke;opacity:.92}
+#mk circle{fill:none;stroke:var(--faint);stroke-width:.6;vector-effect:non-scaling-stroke}
+#spin{transform-origin:50% 50%;animation:turn 48s linear infinite}
+#breathe{transform-origin:50% 50%;animation:breathe 9s ease-in-out infinite}
+@keyframes turn{to{transform:rotate(360deg)}}
+@keyframes breathe{50%{opacity:.55}}
+.lede{text-align:center;color:var(--dim);font-size:15px;line-height:1.75;max-width:30ch}
+.lede b{color:var(--ink);font-weight:400}
+.tap{display:inline-block;margin-top:4px;font:500 11px/1 ui-sans-serif,system-ui,sans-serif;
+  letter-spacing:.22em;text-transform:uppercase;color:var(--both)}
+/* ── the panels ────────────────────────────────────────────────────────── */
+#deck{position:fixed;inset:0;background:#000;display:none;flex-direction:column}
+#deck.on{display:flex}
+#bar{display:flex;align-items:center;gap:10px;padding:max(12px,env(safe-area-inset-top)) 14px 12px;
+  border-bottom:1px solid var(--line);background:#000}
+#bar h1{font:500 12px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--dim);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ctl{appearance:none;background:none;border:1px solid var(--line);border-radius:9px;color:var(--dim);
+  min-width:44px;min-height:44px;display:grid;place-items:center;cursor:pointer;
+  font:500 12px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.1em;padding:0 11px}
+.ctl:hover,.ctl:focus-visible{color:var(--ink);border-color:var(--faint);outline:none}
+.ctl:focus-visible{outline:2px solid var(--both);outline-offset:2px}
+/* The rail is a tab list: thumbs swipe it, a keyboard arrows through it. */
+#rail{display:flex;gap:8px;overflow-x:auto;padding:12px 14px;border-bottom:1px solid var(--line);
+  scrollbar-width:none;-webkit-overflow-scrolling:touch}
+#rail::-webkit-scrollbar{display:none}
+.tab{flex:0 0 auto;appearance:none;background:none;border:1px solid var(--line);border-radius:999px;
+  color:var(--dim);padding:0 15px;min-height:44px;cursor:pointer;white-space:nowrap;
+  font:500 12.5px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.04em}
+.tab[aria-selected="true"]{color:#000;background:var(--both);border-color:var(--both);font-weight:600}
+.tab:focus-visible{outline:2px solid var(--both);outline-offset:2px}
+#pages{flex:1;overflow-y:auto;overscroll-behavior:contain;
+  padding:22px 20px calc(42px + env(safe-area-inset-bottom))}
+.page{display:none;max-width:38rem;margin:0 auto}
+.page.on{display:block;animation:rise .28s ease}
+@keyframes rise{from{opacity:0;transform:translateY(7px)}}
+.page h2{font:400 25px/1.3 ui-serif,Georgia,serif;margin-bottom:6px;letter-spacing:-.01em}
+.page .ar{color:var(--dim);font-size:13.5px;letter-spacing:.06em;margin-bottom:18px;
+  font-family:ui-sans-serif,system-ui,sans-serif}
+.page p{margin-bottom:15px}
+.page p.key{color:var(--ink);border-left:2px solid var(--both);padding-left:14px}
+.two{display:grid;gap:12px;margin:18px 0}
+@media(min-width:620px){.two{grid-template-columns:1fr 1fr}}
+.cel{border:1px solid var(--line);border-radius:12px;padding:15px 16px}
+.cel h3{font:500 12px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;
+  margin-bottom:9px}
+.cel.r h3{color:var(--aql)} .cel.i h3{color:var(--khayal)}
+.cel p{font-size:15px;margin-bottom:0;color:var(--dim)}
+.cel p+p{margin-top:10px}
+blockquote{border-left:2px solid var(--faint);padding:2px 0 2px 15px;margin:18px 0;color:var(--dim);
+  font-size:15.5px}
+blockquote cite{display:block;margin-top:9px;font-style:normal;font-size:12px;letter-spacing:.04em;
+  color:var(--faint);font-family:ui-sans-serif,system-ui,sans-serif}
+.verse{color:var(--ink)}
+.caution{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:20px 0;
+  font-size:14px;color:var(--dim);font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.65}
+.caution b{color:var(--ink);font-weight:600}
+.nav{display:flex;gap:10px;margin-top:26px;padding-top:18px;border-top:1px solid var(--line)}
+.nav .ctl{flex:1}
+/* ── mobile and motion preferences ─────────────────────────────────────── */
+@media(prefers-reduced-motion:reduce){
+  #spin,#breathe{animation:none}
+  .page.on{animation:none}
+}
+@media(max-width:400px){ .page h2{font-size:22px} body{font-size:15.5px} }
+</style></head><body>
+
+<canvas id="stars" aria-hidden="true"></canvas>
+
+<!-- The entrance. One control in a large dark field; it is a real button, so a
+     keyboard reaches it and a screen reader announces what it opens. -->
+<main id="space">
+  <button id="enter" aria-label="Enter: the two eyes, an exploration of Ibn Arabi's framework">
+    <svg id="mk" viewBox="-60 -60 120 120" aria-hidden="true">
+      <g id="breathe">
+        <circle r="54"></circle><circle r="38"></circle>
+        <g id="spin">
+          <!-- Two interlocking tetrahedra, drawn as the familiar star figure:
+               one facing up, one facing down. Here it stands for the two
+               faculties — see the Attribution panel for what this image is and
+               is not. -->
+          <polygon class="up" points="0,-44 38,22 -38,22"></polygon>
+          <polygon class="dn" points="0,44 38,-22 -38,-22"></polygon>
+          <polygon class="up" points="0,-22 19,11 -19,11" opacity=".45"></polygon>
+          <polygon class="dn" points="0,22 19,-11 -19,-11" opacity=".45"></polygon>
+        </g>
+      </g>
+    </svg>
+    <span class="lede"><b>To see with one eye is to see only part.</b><br>
+      Reason distinguishes. Imagination joins. Ibn Arabi asks for both.
+      <span class="tap">Tap to enter</span></span>
+  </button>
+</main>
+
+<section id="deck" aria-label="The two eyes">
+  <div id="bar">
+    <button class="ctl" id="back" aria-label="Back to the entrance">←</button>
+    <h1 id="barTitle">Two eyes</h1>
+    <button class="ctl" id="bigger" aria-label="Increase text size">A+</button>
+    <button class="ctl" id="smaller" aria-label="Decrease text size">A−</button>
+  </div>
+  <div id="rail" role="tablist" aria-label="Sections"></div>
+  <div id="pages"></div>
+</section>
+
+<script>
+const SECTIONS = [
+  { id:'eyes', tab:'Two eyes', title:'The possessor of two eyes', ar:'dhū al-ʿaynayn',
+    html:`<p class="key">For Ibn Arabi, perfect knowledge of <i>tawhid</i> cannot be reached through a
+      single faculty. Reason (<i>ʿaql</i>) and imagination (<i>khayāl</i>) must work together.</p>
+    <p>Relying on either alone, as the sole means of knowing or worshipping God, risks an incomplete and
+      distorted understanding of <i>al-Ḥaqq</i>.</p>
+    <div class="two">
+      <div class="cel r"><h3>Reason · ʿaql</h3><p>Works by distinguishing and separating.
+        It preserves God's incomparability — and struggles to hold opposites together.</p></div>
+      <div class="cel i"><h3>Imagination · khayāl</h3><p>Perceives presence and nearness within forms.
+        It joins — and without correction it may collapse the distinction entirely.</p></div>
+    </div>
+    <p>One who possesses both can perceive God as both near and far, affirming <i>tashbīh</i> and
+      <i>tanzīh</i> at once. To see with only one eye is to see only part of reality.</p>` },
+
+  { id:'reason', tab:'Reason alone', title:'What reason reaches, and where it stops', ar:'ʿaql · tanzīh · taʿṭīl',
+    html:`<p>Attempting God's absolute oneness through reason alone, one can ultimately affirm only that
+      <span class="verse">“Nothing is like Him”</span> (42:11).</p>
+    <p>Reason naturally operates by distinguishing. It therefore struggles to reconcile what appear to be
+      opposites — God as both the First and the Last, the Manifest (<i>al-Ẓāhir</i>) and the Hidden
+      (<i>al-Bāṭin</i>).</p>
+    <p class="key">So reason tends toward an absolute <i>tanzīh</i> that leaves no room for <i>tashbīh</i>.
+      Taken to its extreme this becomes <i>taʿṭīl</i>: a transcendence so radical that positive knowledge
+      or experience of God becomes impossible.</p>
+    <p>Its highest achievement, in this reading, is to recognise that it cannot reach the fullness of
+      divine knowledge by reflection (<i>fikr</i>) alone.</p>` },
+
+  { id:'imagination', tab:'Imagination alone', title:'What imagination reaches, and its danger', ar:'khayāl · tashbīh · shirk',
+    html:`<p>Unrestrained imagination creates the opposite danger. Because it is particularly capable of
+      perceiving divine presence and nearness within different forms, using it without the corrective of
+      <i>tanzīh</i> may lead one to perceive everything as essentially similar to God.</p>
+    <p class="key">At its extreme this becomes pure <i>tashbīh</i>, and may lead to <i>shirk</i>, because the
+      distinction between God and creation is no longer adequately maintained.</p>
+    <p>Yet imagination is given the greater authority. Ibn Arabi describes it as the “supreme authority”
+      (<i>sulṭān</i>) within the perfect natural constitution of the human being in this world — not because
+      reason is abandoned, but because reason must eventually recognise a mode of knowing that transcends
+      its own method.</p>` },
+
+  { id:'pair', tab:'Tanzīh · tashbīh', title:'Both, in one verse', ar:'tanzīh wa tashbīh',
+    html:`<p>Neither absolute <i>tanzīh</i> nor absolute <i>tashbīh</i> can represent the complete truth.
+      Both are necessary dimensions of the way divine reality is disclosed.</p>
+    <blockquote class="verse">“Nothing is like Him, and He is All-Hearing, All-Seeing.”<cite>Qur'an 42:11, as cited in the source text</cite></blockquote>
+    <p>The first statement affirms <i>tanzīh</i>: nothing can be compared with God. The second affirms
+      <i>tashbīh</i>: God describes Himself through attributes with recognisable counterparts in human
+      experience — hearing, seeing. Both appear together within the same divine statement.</p>
+    <p class="key">God transcends everything, yet simultaneously discloses Himself through everything.</p>` },
+
+  { id:'tawhid', tab:'Tawhīd', title:'The unconditional affirmation', ar:'tawḥīd',
+    html:`<p>The absolute truth is <i>tawhid</i>, the affirmation that God is One. Because <i>tawhid</i> is
+      unconditional, it cannot be reduced exclusively to either transcendence or immanence.</p>
+    <p>Perfect knowledge of it emerges when reason and imagination are brought into harmony rather than
+      treated as competing faculties:</p>
+    <div class="two">
+      <div class="cel r"><h3>Reason prevents</h3><p>imagination from collapsing God into creation.</p></div>
+      <div class="cel i"><h3>Imagination prevents</h3><p>reason from placing God at such a distance that His
+        self-manifestation becomes unintelligible.</p></div>
+    </div>
+    <p>It is precisely in the interplay between <i>tanzīh</i> and <i>tashbīh</i> that a fuller experience of
+      <i>tawhid</i> is located.</p>` },
+
+  { id:'tajalli', tab:'Tajallī · kashf', title:'Knowledge that is given', ar:'tajallī · kashf · ladunnī',
+    html:`<p>“God-given” (<i>ladunnī</i>) knowledge refers to knowledge of God's <i>tajallī</i> —
+      manifestation (<i>ẓuhūr</i>) — which becomes accessible through <i>kashf</i> and <i>khayāl</i>.</p>
+    <blockquote>“If reason functions by itself quite independently of anything else so that it acquires
+      knowledge by its own cognitive power, the knowledge that it obtains of God will surely take the form of
+      tanzih, not that of tashbih. But if God furnishes reason with a true knowledge of the divine
+      self-manifestation, its knowledge of God attains perfection, and it will exercise tanzih where it should
+      be, and exercise tashbih where it should be.”<cite>Quoted in the source text; reproduced as supplied, not independently verified</cite></blockquote>
+    <p>A tension sits here, and the source addresses it. In the <i>Futūḥāt</i> Ibn Arabi states that there can
+      be no unveiling in the knowledge of <i>tawhid</i>, because <i>tawhid</i> is a relationship rather than an
+      ontological reality, and relationships cannot be seen.</p>
+    <blockquote>“Vision only becomes connected to its object through the qualities which the object possesses.
+      But does the Divine Side have any qualities? Rational proof negates that He should have any … But if God
+      should embody these meanings in the Presence of Imaginalization … then this knowledge can be attained
+      through unveiling.”<cite>Quoted in the source text; reproduced as supplied, not independently verified</cite></blockquote>
+    <p class="key">Imagination is the mediating faculty: what cannot be perceived in itself becomes perceptible
+      through a form. “The meanings become corporealized in the presence of imagination, like knowledge in the
+      form of milk.”</p>` },
+
+  { id:'mercy', tab:'Mercy · wrath', title:'Why nearness is the wider reality', ar:'raḥmah · ghaḍab',
+    html:`<p>Mercy signifies God's nearness to creation; wrath signifies distance and separation. If mercy is
+      associated with <i>tashbīh</i> and wrath with <i>tanzīh</i>, then nearness has a more fundamental place
+      in reality than distance.</p>
+    <blockquote>“Verily, My Mercy overcomes My wrath.”<cite>Hadith as cited in the source text</cite></blockquote>
+    <p>Mercy belongs to the very nature of God's being (<i>wujūd</i>), while wrath is limited and arises only
+      in particular relationships. <span class="verse">“My mercy embraces all things.”</span>
+      <span class="verse">“He is with you wherever you are”</span> (57:4).</p>
+    <p class="key">So reason — which naturally perceives transcendence and distance — must in some sense be
+      guided by imagination, which perceives the nearness expressed through divine mercy.</p>` },
+
+  { id:'ascent', tab:'Ascent', title:'From form to meaning, without end', ar:'miʿrāj',
+    html:`<p>When the two faculties work together they enable an ongoing ascension in knowledge and being. One
+      perceives a created form, then recognises that form as a manifestation of God — an ascent to a higher
+      level of understanding.</p>
+    <p>Because the divine names and their manifestations possess different degrees of excellence, the process
+      does not end with a single insight. It can continue indefinitely, moving from form to meaning and from
+      one level of manifestation to another.</p>
+    <p class="key">When imagination perceives God's presence through a particular manifestation, the seeker
+      must not stop there. To identify God completely with any manifestation would be to limit Him to a
+      created form — and here reason becomes necessary: the manifestation reveals God, but the manifestation
+      is not God.</p>
+    <p>Imagination initiates the movement; reason ensures the manifestation is not mistaken for God Himself.</p>` },
+
+  { id:'about', tab:'About this', title:'What this is, and what it is not', ar:'attribution',
+    html:`<div class="caution">
+      <p><b>Source.</b> Every passage here is a condensation of one supplied interpretation of Ibn Arabi —
+      a video script provided by the operator. It is that author's reading, not a neutral summary of Ibn
+      Arabi's corpus, and not this app's scholarship.</p></div>
+    <div class="caution">
+      <p><b>The geometry is not a claim.</b> The interlocking tetrahedra on the entrance are used here as a
+      visual figure for two faculties meeting. <b>No claim is made that this form is historically Ibn Arabi's,
+      or that it belongs to his cosmology or to Akbarian tradition.</b> It is an interface, chosen for this
+      app, and nothing in the source text describes it.</p></div>
+    <div class="caution">
+      <p><b>Quotations are reproduced, not authenticated.</b> The block quotations and the Qur'anic and hadith
+      citations appear exactly as supplied in the source text. They have not been checked against critical
+      editions, translations or chains of transmission here, and the attributions are the source's. Anyone
+      relying on them should return to the originals.</p></div>
+    <div class="caution">
+      <p><b>Transliteration</b> follows the source, lightly regularised. Arabic terms are given in italics on
+      first use with their sense in English beside them.</p></div>` },
+];
+
+const $ = (id) => document.getElementById(id);
+const rail = $('rail'), pages = $('pages');
+
+// Build the tabs and the pages from one list, so a section cannot exist in the
+// rail without a page behind it.
+rail.innerHTML = SECTIONS.map((s, i) =>
+  `<button class="tab" role="tab" id="tab-${s.id}" aria-controls="page-${s.id}"
+     aria-selected="${i === 0}" tabindex="${i === 0 ? 0 : -1}">${s.tab}</button>`).join('');
+pages.innerHTML = SECTIONS.map((s, i) =>
+  `<article class="page${i === 0 ? ' on' : ''}" id="page-${s.id}" role="tabpanel"
+     aria-labelledby="tab-${s.id}" tabindex="0"${i === 0 ? '' : ' hidden'}>
+     <h2>${s.title}</h2><div class="ar">${s.ar}</div>${s.html}
+     <div class="nav">
+       <button class="ctl prev" data-i="${i}">← Previous</button>
+       <button class="ctl next" data-i="${i}">Next →</button>
+     </div></article>`).join('');
+
+let at = 0;
+function show(i, focusTab) {
+  i = Math.max(0, Math.min(SECTIONS.length - 1, i));
+  at = i;
+  SECTIONS.forEach((s, n) => {
+    const tab = $('tab-' + s.id), page = $('page-' + s.id);
+    tab.setAttribute('aria-selected', n === i);
+    tab.tabIndex = n === i ? 0 : -1;
+    page.classList.toggle('on', n === i);
+    page.hidden = n !== i;
+  });
+  $('barTitle').textContent = SECTIONS[i].tab;
+  $('tab-' + SECTIONS[i].id).scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  pages.scrollTop = 0;
+  if (focusTab) $('tab-' + SECTIONS[i].id).focus();
+  else $('page-' + SECTIONS[i].id).focus({ preventScroll: true });
+  history.replaceState(null, '', '#' + SECTIONS[i].id);
+}
+rail.addEventListener('click', (e) => {
+  const t = e.target.closest('.tab'); if (!t) return;
+  show(SECTIONS.findIndex((s) => 'tab-' + s.id === t.id), true);
+});
+// Arrow keys walk the rail, which is what a tablist is expected to do.
+rail.addEventListener('keydown', (e) => {
+  const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+  if (!d) return; e.preventDefault(); show(at + d, true);
+});
+pages.addEventListener('click', (e) => {
+  if (e.target.classList.contains('next')) show(at + 1, false);
+  if (e.target.classList.contains('prev')) show(at - 1, false);
+});
+
+// Entering and leaving. The entrance stays in the DOM so Back returns to it
+// rather than reloading the field.
+function enter() {
+  $('deck').classList.add('on');
+  $('space').style.display = 'none';
+  show(location.hash ? Math.max(0, SECTIONS.findIndex((s) => '#' + s.id === location.hash)) : 0, true);
+}
+function leave() {
+  $('deck').classList.remove('on');
+  $('space').style.display = 'grid';
+  $('enter').focus({ preventScroll: true });
+  history.replaceState(null, '', location.pathname);
+}
+$('enter').addEventListener('click', enter);
+$('back').addEventListener('click', leave);
+addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('deck').classList.contains('on')) { e.preventDefault(); leave(); }
+});
+
+// Text size, because a serif column at arm's length is not one size for everyone.
+let scale = Number(localStorage.getItem('mk-scale') || 100);
+function applyScale() {
+  document.documentElement.style.fontSize = scale + '%';
+  localStorage.setItem('mk-scale', scale);
+}
+$('bigger').addEventListener('click', () => { scale = Math.min(140, scale + 10); applyScale(); });
+$('smaller').addEventListener('click', () => { scale = Math.max(85, scale - 10); applyScale(); });
+applyScale();
+
+// A quiet star field. Static where motion is unwelcome, and never animated —
+// it is depth, not decoration that moves.
+(function stars() {
+  const c = $('stars'), x = c.getContext('2d');
+  function draw() {
+    const d = Math.min(devicePixelRatio || 1, 2);
+    c.width = innerWidth * d; c.height = innerHeight * d;
+    x.setTransform(d, 0, 0, d, 0, 0);
+    x.clearRect(0, 0, innerWidth, innerHeight);
+    const n = Math.round(innerWidth * innerHeight / 9000);
+    for (let i = 0; i < n; i++) {
+      const r = Math.random() * 1.1 + .2;
+      x.globalAlpha = Math.random() * .5 + .08;
+      x.fillStyle = '#cfe0ea';
+      x.beginPath(); x.arc(Math.random() * innerWidth, Math.random() * innerHeight, r, 0, 7); x.fill();
+    }
+  }
+  draw(); addEventListener('resize', draw);
+})();
+
+if (location.hash) enter();
+</script></body></html>

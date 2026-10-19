@@ -4501,6 +4501,20 @@ class Handler(BaseHTTPRequestHandler):
 
         # Notes. Same origin, same `allowed()` gate as everything else on this
         # port — there is no second stack here and nothing new is listening.
+        # A private preview surface for REQ-0044. Read from disk like the fleet
+        # map page, so the content is reviewable as a file rather than buried in
+        # a string constant. Sits behind the same tailnet gate as everything else.
+        if path == "/merkaba":
+            try:
+                with open(os.path.join(HERE, "merkaba.html"), encoding="utf-8") as fh:
+                    page = fh.read()
+            except OSError:
+                return self._send(503, "merkaba page unavailable\n", "text/plain")
+            return self._send(200, page, "text/html; charset=utf-8", {
+                "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; "
+                "style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; "
+                "frame-ancestors 'self'",
+                "X-Content-Type-Options": "nosniff"})
         if path == "/notes":
             page = (NOTES_PAGE
                     .replace("__VT__", VIEW_TRANSITION_CSS)
