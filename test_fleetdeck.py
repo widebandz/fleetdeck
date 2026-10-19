@@ -40,6 +40,50 @@ def check(name, cond, detail=""):
         _fails.append(name)
 
 
+def _refuses(arguments):
+    """True when the closed work surface rejects these arguments outright."""
+    try:
+        P.work_command(*arguments)
+        return False
+    except ValueError:
+        return True
+    except Exception:
+        # Reached the subprocess, which means the surface allowed it through.
+        return False
+
+
+def _unavailable(call):
+    try:
+        call()
+        return False
+    except P.WorkUnavailable:
+        return True
+
+
+def _artifact_bytes_with(lie):
+    """Hand the portal a ledger answer that is wrong in one specific way."""
+    import base64 as _b64, hashlib as _hash
+    real = b"<p>draft</p>"
+    item = {"id": "ART-" + "a" * 24, "ticket": "REQ-0011", "label": "", "version": "",
+            "original_name": "review.html", "mime_type": "text/html", "size": len(real),
+            "sha256": _hash.sha256(real).hexdigest(), "state": "available", "created": 1.0,
+            "verified": True, "content_base64": _b64.b64encode(real).decode()}
+    if lie == "digest":
+        item["content_base64"] = _b64.b64encode(b"<p>substituted</p>").decode()
+    elif lie == "unverified":
+        item["verified"] = False
+    elif lie == "size":
+        item["size"] = len(real) + 10
+    elif lie == "missing":
+        item.pop("content_base64")
+    original = P.work_command
+    P.work_command = lambda *a: item
+    try:
+        return P.work_artifact_bytes(item["id"])
+    finally:
+        P.work_command = original
+
+
 def agents_from(plists, state):
     """Run launch_agents() against a directory we control, so the assertions
     are about the rule rather than about whatever this machine happens to be
@@ -867,6 +911,41 @@ check("UNIT-NOTE-PARSE labelled lines distil, and wrapped ones stay whole",
       and parsed["next"] == "pick the scheduler"
       and parsed["original"].endswith("trailing prose"),
       f"{parsed}")
+
+# ── generated artifacts: the closed surface, the fields, and the second check ──
+# A Work artifact is the one thing this portal serves bytes for, so these cover
+# what it refuses to serve and what it refuses to believe.
+check("UNIT-ART-SURFACE the work command surface takes IDs and nothing else",
+      all(_refuses(attempt) for attempt in [
+          ("ingest", "/etc/passwd", "--ticket", "REQ-0011"),
+          ("release", "REQ-0011", "x"),
+          ("artifact", "/Users/studio/finance-ops/drafts/REQ-0011/review.html"),
+          ("artifact", "ART-458018f357cf285b9f45f0a8", "--bytes", "--root", "/tmp"),
+          ("artifact", "ART-nope"),
+          ("artifacts", "--ticket", "REQ-0011; rm -rf /"),
+          ("artifacts", "--root", "/tmp")])
+      and not _refuses(("artifact", "ART-" + "a" * 24))
+      and not _refuses(("artifacts", "--ticket", "REQ-0011")))
+
+_sample = {"id": "ART-" + "a" * 24, "ticket": "REQ-0011", "label": "Review", "version": "v0.2",
+           "original_name": "../../etc/review.html", "origin_path": "/Users/studio/private/path.html",
+           "mime_type": "text/html", "size": 3, "sha256": "f" * 64, "state": "available", "created": 1.0}
+_clean = P.work_artifact(_sample)
+check("UNIT-ART-FIELDS the artifact view adds links and drops the local path",
+      _clean["open"] == "/work/artifact/ART-" + "a" * 24
+      and _clean["download"].endswith("?download=1")
+      and "origin_path" not in _clean
+      and _clean["original_name"] == "review.html",
+      f"{_clean}")
+
+check("UNIT-ART-ID a reference that is not an artifact ID is not an artifact",
+      all(_unavailable(lambda value=value: P.work_artifact(dict(_sample, id=value)))
+          for value in ["", "ATT-18146a439536feaae7c5432c", "ART-" + "a" * 23,
+                        "ART-" + "A" * 24, "../../etc/passwd", None]))
+
+check("UNIT-ART-VERIFY the portal re-checks the bytes instead of trusting the ledger",
+      all(_unavailable(lambda lie=lie: _artifact_bytes_with(lie))
+          for lie in ["digest", "unverified", "size", "missing"]))
 
 # ── live ─────────────────────────────────────────────────────────────────────
 try:

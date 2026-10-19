@@ -59,6 +59,7 @@ import re
 import fcntl
 import base64
 import binascii
+import hashlib
 import hmac
 import stat
 import subprocess
@@ -124,6 +125,260 @@ SETUP_STATE_PATH = os.path.expanduser(os.environ.get(
     "FLEETDECK_SETUP_STATE_PATH", "~/.wideband/setup/state.json"))
 FIRST_GOAL_STATUS_PATH = os.path.expanduser(os.environ.get(
     "FLEETDECK_FIRST_GOAL_STATUS_PATH", "~/.wideband/first-goal/status.json"))
+WORK_COMMAND = os.path.expanduser(os.environ.get(
+    "FLEETDECK_WORK_COMMAND", "~/bin/wb-work"))
+
+
+class WorkUnavailable(Exception):
+    """A bounded ledger read failed; never expose subprocess output to clients."""
+
+
+
+WORK_DOC_PAGE = r"""<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Document — Work</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{--bg:#0a0e12;--panel:#111820;--line:#1e2a35;--ink:#c8d6e0;--dim:#6b7f8f;--teal:#3fd0c9}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);display:flex;flex-direction:column;overflow:hidden;
+  font:13px/1.5 ui-sans-serif,-apple-system,"SF Pro Text",Segoe UI,sans-serif}
+#bar{display:flex;gap:8px;align-items:center;padding:max(10px,env(safe-area-inset-top)) 12px 10px;
+  background:var(--panel);border-bottom:1px solid var(--line);flex:0 0 auto}
+#who{flex:1;min-width:0}
+#name{display:block;color:#e6f1f8;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sub{display:block;color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.btn{appearance:none;background:none;border:1px solid var(--line);border-radius:9px;color:var(--dim);
+  min-width:44px;min-height:44px;display:grid;place-items:center;cursor:pointer;font:inherit;
+  font-size:12px;padding:0 10px;text-decoration:none}
+.btn:hover,.btn:focus-visible{color:#e6f1f8;border-color:var(--teal);outline:none}
+.btn:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+.btn[disabled]{opacity:.35;cursor:default}
+/* An explicit height, because WebKit ignores min-height on a native select —
+   it rendered at 20px, which is not a thumb target. */
+#pick{flex:0 1 190px;height:44px;min-height:44px;appearance:none;-webkit-appearance:none;background:#0a0e12;color:var(--ink);border:1px solid var(--line);
+  border-radius:9px;font:inherit;font-size:12px;padding:0 9px}
+#stage{flex:1;position:relative;min-height:0;background:#fff}
+#doc{position:absolute;inset:0;width:100%;height:100%;border:0;display:block;background:#fff}
+#foot{display:flex;gap:8px;align-items:center;justify-content:space-between;
+  padding:9px 12px calc(9px + env(safe-area-inset-bottom));background:var(--panel);
+  border-top:1px solid var(--line);flex:0 0 auto;color:var(--dim);font-size:11.5px}
+#count{white-space:nowrap}
+/* Fullscreen has two paths. The Fullscreen API is used where it exists; iOS
+   Safari has no element fullscreen at all, so the fallback is a real CSS mode
+   rather than a button that silently does nothing on the one device most
+   likely to be reading this. */
+body.max #bar,body.max #foot{display:none}
+body.max #stage{position:fixed;inset:0;z-index:50}
+#exit{display:none;position:absolute;z-index:60;right:calc(10px + env(safe-area-inset-right));
+  top:calc(10px + env(safe-area-inset-top));background:rgba(10,14,18,.92);border:1px solid var(--line);
+  border-radius:9px;color:#e6f1f8;min-width:44px;min-height:44px;padding:0 12px;font:inherit;font-size:12px;
+  cursor:pointer;backdrop-filter:blur(6px)}
+body.max #exit{display:grid;place-items:center}
+@media(max-width:520px){#pick{flex:1 1 100%;order:9}#bar{flex-wrap:wrap}}
+</style></head><body>
+<div id="bar">
+  <a class="btn" id="back" href="/work" title="Back to Work">‹</a>
+  <span id="who"><span id="name">…</span><span id="sub"></span></span>
+  <select id="pick" aria-label="Choose a document"></select>
+  <button class="btn" id="prev" aria-label="Previous document">←</button>
+  <button class="btn" id="next" aria-label="Next document">→</button>
+  <a class="btn" id="dl" href="#" aria-label="Download this document">↓</a>
+  <button class="btn" id="full" aria-label="Fullscreen">⤢</button>
+</div>
+<div id="stage">
+  <iframe id="doc" title="Document" referrerpolicy="no-referrer"></iframe>
+  <!-- Inside the stage on purpose: the Fullscreen API renders only the
+       fullscreened element's subtree, so an exit control outside it disappears
+       exactly when it is the only way out — and a phone has no Esc key. -->
+  <button id="exit" aria-label="Leave fullscreen">✕ Exit</button>
+</div>
+<div id="foot"><span id="count"></span><span id="hint">← → to move · F fullscreen · Esc exits</span></div>
+<script>
+const DOCS=__DOCS__, TICKET=__TICKET__;
+let at=Math.max(0,DOCS.findIndex(d=>d.id===__CURRENT__));
+const $=id=>document.getElementById(id);
+const kb=n=>Math.max(1,Math.round(n/1024))+' KB';
+$('pick').innerHTML=DOCS.map((d,i)=>'<option value="'+i+'">'+(d.version||'v?')+' · '+d.original_name+'</option>').join('');
+function show(i,push){
+  at=Math.max(0,Math.min(DOCS.length-1,i));
+  const d=DOCS[at];
+  // The frame points at the artifact route untouched, so the document is served
+  // under its own strict headers and verified byte-for-byte exactly as before.
+  $('doc').src=d.open;
+  $('doc').title=d.original_name;
+  $('name').textContent=d.label||d.original_name;
+  $('sub').textContent=[d.version,d.original_name,kb(d.size),TICKET].filter(Boolean).join(' · ');
+  $('dl').href=d.download;
+  $('dl').setAttribute('download',d.original_name);
+  $('pick').value=String(at);
+  $('prev').disabled=at===0; $('next').disabled=at===DOCS.length-1;
+  $('count').textContent='Document '+(at+1)+' of '+DOCS.length;
+  if(push!==false)history.replaceState(null,'','/work/doc/'+d.id);
+}
+$('prev').onclick=()=>show(at-1); $('next').onclick=()=>show(at+1);
+$('pick').onchange=e=>show(Number(e.target.value));
+function isFull(){return !!(document.fullscreenElement||document.webkitFullscreenElement)||document.body.classList.contains('max')}
+function enterFull(){
+  const el=$('stage');
+  const req=el.requestFullscreen||el.webkitRequestFullscreen;
+  if(req){req.call(el).then(()=>{},()=>document.body.classList.add('max'));}
+  else document.body.classList.add('max');   // iOS Safari: no element fullscreen
+  document.body.classList.add('max');
+  $('exit').focus({preventScroll:true});
+}
+function leaveFull(){
+  const ex=document.exitFullscreen||document.webkitExitFullscreen;
+  if(document.fullscreenElement||document.webkitFullscreenElement){try{ex.call(document)}catch(e){}}
+  document.body.classList.remove('max');
+  $('full').focus({preventScroll:true});
+}
+$('full').onclick=()=>isFull()?leaveFull():enterFull();
+$('exit').onclick=leaveFull;
+document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement)document.body.classList.remove('max')});
+addEventListener('keydown',e=>{
+  if(e.target.tagName==='SELECT')return;
+  if(e.key==='ArrowLeft')  {e.preventDefault();show(at-1)}
+  if(e.key==='ArrowRight') {e.preventDefault();show(at+1)}
+  if(e.key==='f'||e.key==='F'){e.preventDefault();isFull()?leaveFull():enterFull()}
+  if(e.key==='Escape'&&document.body.classList.contains('max')){e.preventDefault();leaveFull()}
+});
+show(at,false);
+</script></body></html>"""
+
+WORK_ARTIFACT_ID = r"ART-[a-f0-9]{24}"
+# Served inline only where the browser cannot be talked into running it. An
+# ingested review is HTML, and HTML rendered on this origin could script the
+# portal, so the open route ships a no-script CSP and nosniff; anything else is
+# a download. Nothing is decided from the file's own name.
+WORK_INLINE_TYPES = {"text/html": "text/html; charset=utf-8", "text/plain": "text/plain; charset=utf-8",
+                     "text/markdown": "text/plain; charset=utf-8", "application/pdf": "application/pdf",
+                     "image/png": "image/png", "image/jpeg": "image/jpeg"}
+
+
+def work_command(*arguments):
+    """Closed command surface over the canonical wb-work SQLite ledger."""
+    if (not arguments or arguments[0] not in {"list", "show", "days", "close-day", "artifacts", "artifact"}
+            or (arguments[0] == "show" and
+                (len(arguments) != 2 or not re.fullmatch(r"REQ-[0-9]{1,12}", arguments[1])))
+            or (arguments[0] == "artifacts" and
+                (len(arguments) != 3 or arguments[1] != "--ticket"
+                 or not re.fullmatch(r"REQ-[0-9]{1,12}", arguments[2])))
+            # An artifact is addressed by ID and never by path. `--bytes` is the
+            # only extra argument this surface will pass, so no caller here can
+            # reach the ledger's wider CLI.
+            or (arguments[0] == "artifact" and
+                (len(arguments) not in (2, 3) or not re.fullmatch(WORK_ARTIFACT_ID, arguments[1])
+                 or (len(arguments) == 3 and arguments[2] != "--bytes")))):
+        raise ValueError("unsupported work operation")
+    try:
+        result = subprocess.run([WORK_COMMAND, *arguments, "--json"],
+                                capture_output=True, text=True, timeout=8,
+                                stdin=subprocess.DEVNULL, check=True)
+        if len(result.stdout) > 4 * 1024 * 1024:
+            raise WorkUnavailable()
+        return json.loads(result.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        raise WorkUnavailable() from None
+
+
+def work_ticket(ticket, detailed=False):
+    """Only work fields leave the ledger; receipts and dispatch payloads do not."""
+    if not isinstance(ticket, dict):
+        raise WorkUnavailable()
+    keys = ("id", "goal", "done_when", "owner", "state", "priority", "created",
+            "updated", "closed", "resolution", "evidence", "pending_question", "wait_reason",
+            "last_report", "lease_seconds", "today_work_seconds", "today_wait_seconds",
+            "work_started", "auto_paused", "pause_reason", "idle_timeout_seconds")
+    clean = {key: ticket.get(key) for key in keys if key in ticket}
+    timing = ticket.get("timing", {})
+    clean["timing"] = {key: timing.get(key, 0) for key in (
+        "work_seconds", "wait_seconds", "operator_wait_seconds",
+        "dependency_wait_seconds", "paused_seconds", "elapsed_seconds")}
+    if detailed:
+        clean["attachments"] = []
+        for attachment in ticket.get("attachments", []):
+            if not isinstance(attachment, dict):
+                continue
+            safe = {key: attachment.get(key) for key in (
+                "id", "original_name", "mime_type", "size", "state")}
+            safe["original_name"] = os.path.basename(str(
+                safe.get("original_name") or "Attachment").replace("\\", "/"))[:512]
+            clean["attachments"].append(safe)
+        clean["artifacts"] = []
+        for artifact in ticket.get("artifacts", []):
+            try:
+                clean["artifacts"].append(work_artifact(artifact))
+            except WorkUnavailable:
+                continue
+        journal_keys = ("text", "goal", "done_when", "previous_goal",
+                        "previous_done_when", "owner", "priority", "question",
+                        "reason", "resolution", "evidence", "attachment_ids")
+        clean["history"] = [{"kind": event.get("kind"), "at": event.get("at"),
+                            "data": {key: event.get("data", {}).get(key)
+                                     for key in journal_keys if key in event.get("data", {})}}
+                           for event in ticket.get("history", [])]
+    return clean
+
+
+def work_artifact(artifact):
+    """Only the fields a reader needs, plus the two links that were missing.
+
+    `origin_path` is deliberately dropped: where a draft was generated on this
+    machine is provenance for the ledger, not something a browser needs, and
+    publishing it would turn a filesystem layout into part of the API.
+    """
+    if not isinstance(artifact, dict) or not re.fullmatch(WORK_ARTIFACT_ID, str(artifact.get("id") or "")):
+        raise WorkUnavailable()
+    clean = {key: artifact.get(key) for key in (
+        "id", "ticket", "label", "version", "mime_type", "size", "sha256", "state", "created")}
+    clean["original_name"] = os.path.basename(str(
+        artifact.get("original_name") or "Artifact").replace("\\", "/"))[:512]
+    clean["open"] = "/work/artifact/" + clean["id"]
+    clean["download"] = "/work/artifact/" + clean["id"] + "?download=1"
+    return clean
+
+
+def work_artifact_bytes(artifact_id):
+    """Fetch one artifact and prove the bytes before anything is served.
+
+    The ledger verifies its own archive on read; this checks the digest again
+    after transport, so a surface that publishes bytes never trusts a single
+    confirmation of what they are.
+    """
+    item = work_command("artifact", artifact_id, "--bytes")
+    if not isinstance(item, dict) or not item.get("verified") or not item.get("content_base64"):
+        raise WorkUnavailable()
+    try:
+        content = base64.b64decode(item["content_base64"], validate=True)
+    except (ValueError, TypeError):
+        raise WorkUnavailable() from None
+    if (len(content) != item.get("size")
+            or hashlib.sha256(content).hexdigest() != item.get("sha256")):
+        raise WorkUnavailable()
+    return work_artifact(item), content
+
+
+def work_snapshot(snapshot):
+    if not isinstance(snapshot, dict):
+        raise WorkUnavailable()
+    return {key: snapshot.get(key) for key in (
+        "day", "timezone", "closed_at", "duplicate", "carried", "resolved", "work_seconds")}
+
+
+def work_matrix():
+    tickets = work_command("list", "--all")
+    if not isinstance(tickets, list):
+        raise WorkUnavailable()
+    return {"tickets": [work_ticket(ticket) for ticket in tickets],
+            "collected_at": time.time()}
+
+
+def work_days():
+    snapshots = work_command("days")
+    if not isinstance(snapshots, list):
+        raise WorkUnavailable()
+    return {"days": [work_snapshot(snapshot) for snapshot in snapshots]}
 
 
 def _private_json(path):
@@ -766,15 +1021,15 @@ PAGE = """<!doctype html>
   /* Same chip, no lamp. The lamp on its neighbour means "something is moving
      at the other end of this link"; this one is a ledger, and a pulsing dot
      beside a cash figure would read as an alert. */
-  #cashflow{
+  #cashflow,#work{
     flex:none;margin-left:6px;padding:5px 10px;
     border:1px solid var(--line);border-radius:3px;
     background:transparent;color:var(--ink);text-decoration:none;
     font:inherit;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
     white-space:nowrap;align-self:center;
   }
-  #cashflow:hover,#cashflow:focus-visible{border-color:var(--on);color:var(--on);outline:0}
-  #cashflow:active{background:rgba(79,227,193,.07)}
+  #cashflow:hover,#cashflow:focus-visible,#work:hover,#work:focus-visible{border-color:var(--on);color:var(--on);outline:0}
+  #cashflow:active,#work:active{background:rgba(79,227,193,.07)}
   /* Lit, slowly. The target is a live view and this is the header's only hint
      that something there is moving; it breathes rather than blinks so it does
      not compete with the caret two elements to its left. */
@@ -957,6 +1212,8 @@ PAGE = """<!doctype html>
   .err{border:1px solid var(--warn);color:var(--warn);padding:10px;border-radius:3px}
   footer{margin-top:32px;padding-top:14px;border-top:1px solid var(--line);
     color:var(--dim);font-size:10.5px;letter-spacing:.06em;line-height:1.7}
+/* Open / Closed / All, and a search. Closed work was reachable only as the
+   eight most recent cards in one lane, with no outcome on them. */
 </style></head><body>
 <header>
   <span class="brand" id="brand">__BRAND__</span>
@@ -976,6 +1233,7 @@ PAGE = """<!doctype html>
        surface in a new tab would leave a stack of Fleetdeck tabs behind. -->
   <a id="cashflow" href="/cashflow"
      title="Cashflow — the accountant's cash view">__CASHFLOW_LABEL__</a>
+  <a id="work" href="/work" title="Goals, decisions, and recorded work time">Work</a>
   <span class="meta"><b id="n">—</b> online<span id="clock"></span></span>
   <button id="fs" title="Fullscreen" aria-label="Toggle fullscreen">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -1957,7 +2215,7 @@ def home_pref(cookie_header):
 # unclickable, labelled `down`. Hiding it would make a dead service and an
 # unregistered one look identical from the one screen most likely to be opened
 # when something is wrong.
-PHONE_APPS = ["chat", "messages", "cockpit", "graph", "terminal", "pm"]
+PHONE_APPS = ["chat", "messages", "cockpit", "graph", "terminal", "work"]
 
 # Where the CALL key goes. Trace's conversational surface lives in the cockpit
 # app, because that is where the ElevenLabs SDK, the admin session and the tool
@@ -3698,8 +3956,173 @@ CALL_PAGE = """<!doctype html>
 
 
 # The registry name is what the board shows; a few read better big and short.
+WORK_PAGE = r"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark"><meta name="theme-color" content="#05070a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="/icon-180.png"><link rel="manifest" href="/manifest.webmanifest">
+<title>Work · __MACHINE__</title>
+<style>__VT__
+:root{--bg:#05070a;--panel:#0a0e13;--line:#18222b;--ink:#8fa3b0;--bright:#d6e4ec;--on:#4fe3c1;--warn:#d9a441}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 ui-monospace,"SF Mono",Menlo,monospace;padding:0 18px calc(30px + env(safe-area-inset-bottom))}
+header{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:14px;padding:calc(15px + env(safe-area-inset-top)) 0 15px;background:var(--bg);border-bottom:1px solid var(--line)}
+a{color:var(--on);text-decoration:none}header span{color:var(--bright);font-size:17px}header .machine{font-size:11px;color:var(--ink);margin-left:auto}
+main{max-width:1320px;margin:auto}h1{color:var(--bright);font-size:clamp(30px,7vw,46px);letter-spacing:-.04em;font-weight:500;margin:27px 0 3px}p{margin:0 0 18px}button{font:inherit;cursor:pointer}
+button:focus-visible,a:focus-visible,select:focus-visible{outline:2px solid var(--on);outline-offset:4px}button:disabled{opacity:.45;cursor:default}
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:19px 0}.toolbar button,.close{border:1px solid #284038;border-radius:7px;background:#0b1a17;color:var(--on);padding:9px 13px;min-height:44px}
+.toolbar .secondary{background:var(--panel);border-color:var(--line);color:var(--ink)}.toolbar .stamp{font-size:11px;margin-left:auto}.notice{font-size:12px;color:var(--warn);min-height:20px}
+.summary{display:flex;gap:22px;flex-wrap:wrap;padding:18px 0;border-block:1px solid var(--line);margin-bottom:22px}.summary strong{display:block;color:var(--bright);font-size:23px;font-weight:400}.summary span{font-size:11px}
+.lanes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.lane h2{font-size:11px;font-weight:500;letter-spacing:.13em;text-transform:uppercase;color:var(--ink);margin:0 0 12px}.lane h2 b{color:var(--bright);padding-left:6px;font-weight:400}
+.ticket{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:11px;color:inherit;padding:14px;margin-bottom:11px}.ticket:hover{border-color:#315244}.ticket.attention{border-color:#665027}
+.ticket .meta{font-size:10px;letter-spacing:.04em;color:var(--on);display:flex;justify-content:space-between;gap:10px}.ticket h3{font-size:15px;line-height:1.4;font-weight:400;color:var(--bright);margin:11px 0 9px;overflow-wrap:anywhere}.ticket .criteria{font-size:11px;color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.ticket .question{font-size:12px;color:var(--warn);margin-top:12px;overflow-wrap:anywhere}
+.ticket .owner{font-size:11px;margin:13px 0 7px}.times{display:flex;gap:16px;flex-wrap:wrap;font-size:12px}.times b{font-weight:400;color:var(--bright)}.times small{font-size:9px;color:var(--ink);display:block}.age{border-top:1px solid var(--line);padding-top:13px;font-size:12px;color:#607684}.age small{display:block;margin-top:5px}.empty{font-size:12px;color:#4a5b68;padding:18px 0}.help{font-size:11px;color:#607684;margin:25px 0 30px}.days{border-top:1px solid var(--line);padding-top:22px}.days h2{color:var(--bright);font-size:17px;font-weight:400}.day{padding:13px 0;border-bottom:1px solid var(--line);font-size:12px}.day strong{color:var(--bright);font-weight:400}.day .carried{font-size:10px;margin-top:6px;overflow-wrap:anywhere}
+dialog{padding:0;width:min(640px,calc(100% - 24px));max-height:88vh;border:1px solid #304338;border-radius:13px;background:var(--panel);color:var(--ink)}dialog::backdrop{background:#000b}.detailhead{position:sticky;top:0;background:var(--panel);display:flex;gap:15px;justify-content:space-between;align-items:center;padding:15px 20px;border-bottom:1px solid var(--line)}.detailbody{padding:20px}.detailbody h2{color:var(--bright);font-size:22px;font-weight:400;margin:0 0 20px;overflow-wrap:anywhere}.label{font-size:10px;text-transform:uppercase;letter-spacing:.13em;color:var(--on);margin:23px 0 7px}.detailbody p{white-space:pre-wrap;overflow-wrap:anywhere}.detailbody .times{font-size:18px}.journal{list-style:none;padding:0;margin:0}.journal li{border-top:1px solid var(--line);padding:13px 0;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}.journal small{display:block;color:#607684;font-size:10px;margin-bottom:6px}
+@media(max-width:1000px){.lanes{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){body{padding-inline:14px}.lanes{grid-template-columns:1fr}.toolbar .stamp{width:100%;margin-left:0}.summary{gap:18px}.summary strong{font-size:21px}header .machine{max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.viewbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 14px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.segbtn{appearance:none;background:none;border:0;border-right:1px solid var(--line);color:var(--dim);
+  font:inherit;font-size:13px;padding:0 15px;min-height:44px;cursor:pointer}
+.segbtn:last-child{border-right:0}
+.segbtn[aria-selected="true"]{background:var(--accent,#3fd0c9);color:#06121a;font-weight:600}
+.segbtn:focus-visible{outline:2px solid var(--accent,#3fd0c9);outline-offset:-3px}
+#find{flex:1;min-width:190px;min-height:44px;background:var(--panel,#111820);color:inherit;font:inherit;
+  font-size:13px;border:1px solid var(--line);border-radius:10px;padding:0 13px}
+#find:focus{outline:none;border-color:var(--accent,#3fd0c9)}
+.outcome{margin-top:9px;padding-top:9px;border-top:1px solid var(--line);font-size:12.5px;line-height:1.5;
+  color:var(--dim);text-align:left}
+.outcome b{color:var(--ink,#e6f1f8);font-weight:600}
+.outcome .when{display:block;margin-top:3px;font-size:11.5px;opacity:.8}
+.ticket.stopped{opacity:.92}
+@media(max-width:560px){.viewbar{gap:8px}.segbtn{padding:0 12px;font-size:12.5px}}
+</style></head><body><main>
+<header><a href="/phone" aria-label="Back to portal">‹ Portal</a><span>Work</span><span class="machine">__MACHINE__</span></header>
+<h1>End goals. Recorded time.</h1><p>Business goals and agent outcomes, with a clear next decision.</p>
+<div class="toolbar"><button id="close-day">Close today</button><button id="refresh" class="secondary">Refresh</button><span class="stamp" id="stamp">Connecting…</span></div>
+<div class="notice" id="notice" role="status" aria-live="polite"></div><div class="summary" id="summary"></div>
+<div class="viewbar">
+  <div class="seg" role="tablist" aria-label="Which requests to show">
+    <button class="segbtn" id="view-open" role="tab" aria-selected="true">Open</button>
+    <button class="segbtn" id="view-closed" role="tab" aria-selected="false">Closed</button>
+    <button class="segbtn" id="view-all" role="tab" aria-selected="false">All</button>
+  </div>
+  <input id="find" type="search" placeholder="Search id, goal, owner, outcome…" aria-label="Search requests">
+</div>
+<div id="lanes" class="lanes" aria-live="polite"><div class="empty">Loading goals…</div></div>
+<p class="help">Work time starts when an agent begins execution. The timer pauses automatically when work reports stop and requires explicit resume. Close today saves the outcome and carryover; unfinished goals retain their recorded time.</p>
+<section class="days"><h2>Daily closeouts</h2><div id="days" class="empty">Loading closeouts…</div></section>
+</main><dialog id="detail"><div class="detailhead"><span id="detail-id"></span><button class="close" id="dismiss">Close</button></div><div class="detailbody" id="detail-body"></div></dialog>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const duration=n=>{n=Math.max(0,Math.floor(Number(n)||0));const h=Math.floor(n/3600),m=Math.floor(n%3600/60),s=n%60;return h?h+'h '+String(m).padStart(2,'0')+'m':m?m+'m '+String(s).padStart(2,'0')+'s':s+'s'};
+const stamp=n=>n?new Date(n*1000).toLocaleString():'';
+let selected=null,busy=false,loadFailed=false;
+async function read(path,options){const response=await fetch(path,{cache:'no-store',...options});const data=await response.json();if(!response.ok)throw new Error(data.error||'Work is unavailable');return data}
+function metrics(t,detailed=false){const x=t.timing||{};const started=t.work_started??(t.state==='working'||Number(x.work_seconds)>0);let work='<span><b>'+(started?duration(x.work_seconds):'Not started')+'</b><small>'+(started?'WORKED':'WORK')+'</small></span>';const fields=[];if(detailed||Number(x.wait_seconds)>0||t.state==='waiting')fields.push(['WAITED','wait_seconds']);if(detailed)fields.push(['WAITING ON YOU','operator_wait_seconds'],['DEPENDENCY WAIT','dependency_wait_seconds'],['PAUSED','paused_seconds']);return '<div class="times">'+work+fields.map(([label,key])=>'<span><b>'+duration(x[key])+'</b><small>'+label+'</small></span>').join('')+'</div>'}
+// Stopped means no further work is expected. The ledger's own CLOSED is
+// resolved+cancelled; failed and interrupted are stopped too — they are simply
+// reopenable. Counting them as open is what let a failed request inflate the
+// active-work figures, so the split is named once and reused everywhere.
+const STOPPED={resolved:1,cancelled:1,failed:1,interrupted:1};
+const isStopped=t=>!!STOPPED[t.state];
+// A closed record keeps its own state. A cancelled request is never relabelled
+// as resolved, because those are different outcomes to anyone reading later.
+function outcomeOf(t){
+  if(!isStopped(t))return null;
+  const kind=t.state==='resolved'?'Resolution':t.state==='cancelled'?'Cancelled because'
+    :t.state==='failed'?'Failed because':'Interrupted';
+  return {kind,text:(t.resolution||'').trim(),when:t.closed||t.updated||0,state:t.state};
+}
+function lane(t){if(['resolved','cancelled'].includes(t.state))return 3;if(t.state==='waiting')return t.wait_reason==='dependency'?2:0;if(['unverified','failed','interrupted'].includes(t.state)||(t.state==='paused'&&t.auto_paused))return 0;if(t.state==='working')return 1;return 2}
+const labels={working:'Working',waiting:'Waiting',delivered:'Delivered',queued:'Queued',proposed:'Proposed',paused:'Paused',unverified:'Needs a report',failed:'Failed',interrupted:'Interrupted',resolved:'Resolved',cancelled:'Cancelled'};
+function stateLabel(t){return t.state==='paused'&&t.auto_paused?'Auto-paused':labels[t.state]||t.state}
+function attachmentList(t){const files=t.attachments||[];if(!files.length)return '';return '<div class="label">Attached files</div><ul class="journal">'+files.map(f=>'<li>'+esc(f.original_name||'Attachment')+'<small>'+esc(f.state==='available'?'Saved with this ticket':f.state==='missing'?'Waiting for the file to download':'File could not be saved')+(Number(f.size)>0?' · '+esc(Math.ceil(f.size/1024))+' KB':'')+' · '+esc(f.mime_type||'File')+'</small></li>').join('')+'</ul>'}
+// Artifacts are listed apart from receipt attachments, and are the only ones
+// with links: these bytes were generated here and verified on the way out,
+// which is what makes an open/download link something this page can honestly
+// offer. A receipt attachment has no such route and must not look like it does.
+function artifactList(t){const files=t.artifacts||[];if(!files.length)return '';return '<div class="label">Generated artifacts</div><ul class="journal">'+files.map(f=>{const name=esc(f.original_name||'Artifact');const open=esc(f.open||'');const down=esc(f.download||'');const kb=Number(f.size)>0?' · '+esc(Math.ceil(f.size/1024))+' KB':'';const ver=f.version?' · '+esc(f.version):'';return '<li>'+(f.state==='available'&&open?'<a href="'+open+'" target="_blank" rel="noopener">'+name+'</a> · <a href="'+down+'">download</a>':name+' (unavailable)')+'<small>'+esc(f.label||'Generated for this ticket')+ver+kb+' · '+esc(f.mime_type||'File')+'\nsha256 '+esc(String(f.sha256||'').slice(0,16))+'…</small></li>'}).join('')+'</ul>'}
+function cardOutcome(t){
+  const o=outcomeOf(t); if(!o)return '';
+  const when=o.when?'<span class="when">'+esc(stamp(o.when))+'</span>':'';
+  const text=o.text?esc(o.text.length>190?o.text.slice(0,190)+'…':o.text)
+    :'<i>no reason recorded</i>';
+  return '<div class="outcome"><b>'+esc(o.kind)+':</b> '+text+when+'</div>';
+}
+function card(t){return '<button class="ticket '+(lane(t)===0?'attention':'')+(isStopped(t)?' stopped':'')+'" data-ticket="'+esc(t.id)+'"><span class="meta"><span>'+esc(t.id)+'</span><span>'+esc(stateLabel(t))+' · P'+esc(t.priority)+'</span></span><h3>'+esc(t.goal)+'</h3><div class="criteria">Done when: '+esc(t.done_when||'Completion criterion needed')+'</div>'+(t.pending_question?'<div class="question">'+esc(t.pending_question)+'</div>':'')+'<div class="owner">'+esc(t.owner||'Unassigned')+'</div>'+metrics(t)+cardOutcome(t)+'</button>'}
+let view='open', find='', latest=null;
+const matches=t=>{
+  if(!find)return true;
+  const q=find.toLowerCase();
+  return [t.id,t.goal,t.owner,t.resolution,t.done_when].some(v=>String(v||'').toLowerCase().includes(q));
+};
+function render(data){
+  latest=data;
+  const all=(data.tickets||[]).slice();
+  // One source, filtered — not a second list. Closed records keep the same
+  // shape, the same ids and the same details as they have everywhere else.
+  const shown=all.filter(t=>(view==='all'||(view==='closed')===isStopped(t))&&matches(t));
+  if(view!=='open'){
+    const rows=shown.slice().sort((a,b)=>(b.closed||b.updated||0)-(a.closed||a.updated||0));
+    $('summary').innerHTML=[['Showing',rows.length],['Closed',all.filter(isStopped).length],
+      ['Open',all.filter(t=>!isStopped(t)).length],
+      ['Work on open goals',duration(all.filter(t=>!isStopped(t)).reduce((n,t)=>n+(t.timing?.work_seconds||0),0))]]
+      .map(([l,v])=>'<div><strong>'+esc(v)+'</strong><span>'+esc(l)+'</span></div>').join('');
+    $('lanes').innerHTML='<section class="lane"><h2>'+(view==='closed'?'Closed requests':'All requests')
+      +' <b>'+rows.length+'</b></h2>'
+      +(rows.length?rows.map(card).join('')
+        :'<div class="empty">'+(find?'Nothing matches “'+esc(find)+'”':'Nothing here yet')+'</div>')+'</section>';
+    $('stamp').textContent='Updated '+stamp(data.collected_at);
+    return;
+  }
+  const buckets=[[],[],[],[]];for(const t of shown)buckets[lane(t)].push(t);buckets[3].sort((a,b)=>(b.closed||0)-(a.closed||0));
+  // Open excludes everything stopped. A failed or interrupted request is work
+  // that ended; counting it here overstated both the backlog and the hours.
+  const open=all.filter(t=>!isStopped(t));$('summary').innerHTML=[['Open goals',open.length],['Needs attention',buckets[0].length],['Working',buckets[1].length],['Work on open goals',duration(open.reduce((n,t)=>n+(t.timing?.work_seconds||0),0))]].map(([label,value])=>'<div><strong>'+esc(value)+'</strong><span>'+esc(label)+'</span></div>').join('');$('lanes').innerHTML=['Needs you','Working','Queued & waiting','Recent outcomes'].map((name,i)=>'<section class="lane"><h2>'+name+' <b>'+buckets[i].length+'</b></h2>'+(buckets[i].length?buckets[i].slice(0,i===3?8:100).map(card).join('')+(i===3&&buckets[3].length>8?'<button class="ticket" id="seeclosed"><h3>See all '+all.filter(isStopped).length+' closed requests →</h3></button>':''):'<div class="empty">'+(i===0?'No pending decisions':'Nothing here yet')+'</div>')+'</section>').join('');$('stamp').textContent='Updated '+stamp(data.collected_at);
+  const more=$('seeclosed'); if(more)more.onclick=()=>setView('closed');}
+
+function setView(v){
+  view=v;
+  ['open','closed','all'].forEach(k=>$('view-'+k).setAttribute('aria-selected',String(k===v)));
+  if(latest)render(latest);
+}
+['open','closed','all'].forEach(k=>$('view-'+k).onclick=()=>setView(k));
+$('find').addEventListener('input',e=>{find=e.target.value.trim();if(latest)render(latest)});
+function closeoutTime(d){return d.closed_at?new Date(d.closed_at).toLocaleString(undefined,{timeZone:d.timezone||undefined}):'unknown'}
+function renderDays(data){$('days').className='';$('days').innerHTML=(data.days||[]).length?data.days.map(d=>'<div class="day"><strong>'+esc(d.day)+'</strong> · '+duration(d.work_seconds)+' worked · '+(d.resolved||[]).length+' resolved · '+(d.carried||[]).length+' carried forward<div class="carried">Saved snapshot: '+esc(closeoutTime(d))+' · '+esc(d.timezone)+'<br>'+esc((d.carried||[]).join(' · '))+'</div></div>').join(''):'<div class="empty">No closeouts yet. Close today when you finish reviewing the day.</div>'}
+// What a closed record has to answer: what happened, why it stopped, when, and
+// what comes next. The label follows the ticket's own state — a cancelled
+// request is never presented as a resolution.
+function closureBlock(t){
+  const o=outcomeOf(t);
+  if(!o)return t.resolution?'<div class="label">Resolution</div><p>'+esc(t.resolution)+'</p>':'';
+  // The closeout convention writes "Next step:" into a note. Read it back from
+  // the journal rather than inventing one, and say plainly when there is none.
+  let next='';
+  for(const e of (t.history||[])){
+    const text=String((e.data||{}).text||'');
+    const m=text.match(/next step[:\-]\s*(.+)$/is);
+    if(m)next=m[1].trim();
+  }
+  return '<div class="label">'+esc(o.kind)+'</div><p>'+(o.text?esc(o.text):'<i>no reason recorded</i>')+'</p>'
+    +'<div class="label">Closed</div><p>'+esc(o.when?stamp(o.when):'date not recorded')
+    +' · recorded state: '+esc(stateLabel(t))+'</p>'
+    +'<div class="label">Next step</div><p>'+(next?esc(next):'<i>none recorded</i>')+'</p>';
+}
+function renderDetail(t){$('detail-id').textContent=t.id+' · '+(t.owner||'Unassigned');let journal=(t.history||[]).map(e=>{const d=e.data||{};const lines=Object.entries(d).map(([k,v])=>k.replaceAll('_',' ')+': '+(Array.isArray(v)?v.join('; '):v));return '<li><small>'+esc(stamp(e.at))+' · '+esc(e.kind)+'</small>'+esc(lines.join('\n'))+'</li>'}).join('');const pause=t.state==='paused'?(t.auto_paused?'No active work report for '+duration(t.idle_timeout_seconds||300)+'. Work stopped at the last confirmed activity. The agent must explicitly resume.':t.pause_reason||''):'';$('detail-body').innerHTML='<h2>'+esc(t.goal)+'</h2>'+metrics(t,true)+'<div class="label">Done when</div><p>'+esc(t.done_when||'Completion criterion needed')+'</p>'+(t.pending_question?'<div class="label">'+(t.wait_reason==='dependency'?'Waiting on dependency':'Next decision')+'</div><p>'+esc(t.pending_question)+'</p>':'')+'<div class="label">State</div><p>'+esc(stateLabel(t))+' · priority '+esc(t.priority)+(t.updated?'\nLast update: '+esc(stamp(t.updated)):'')+'</p>'+(pause?'<p>'+esc(pause)+'</p>':'')+closureBlock(t)+((t.evidence||[]).length?'<div class="label">Verification</div><p>'+esc(t.evidence.join('\n'))+'</p>':'')+'<div class="age">Ticket age: '+duration(t.timing?.elapsed_seconds)+'<small>Created '+esc(stamp(t.created))+'. Includes time queued, waiting, and paused.</small></div>'+attachmentList(t)+artifactList(t)+'<div class="label">Journal</div><ol class="journal">'+(journal||'<li>No journal entries yet.</li>')+'</ol>'}
+async function loadDetail(id){const t=await read('/api/work/ticket?id='+encodeURIComponent(id));if(selected===id)renderDetail(t)}
+async function refresh(){if(busy)return;busy=true;try{const [data,days]=await Promise.all([read('/api/work'),read('/api/work/days')]);render(data);renderDays(days);if(selected&&$('detail').open)await loadDetail(selected);if(loadFailed){$('notice').textContent='';loadFailed=false}}catch(e){loadFailed=true;$('notice').textContent=e.message+'. Existing times are the last recorded values.'}finally{busy=false}}
+$('lanes').addEventListener('click',async e=>{const b=e.target.closest('[data-ticket]');if(!b)return;selected=b.dataset.ticket;$('detail-id').textContent=selected;$('detail-body').textContent='Loading…';$('detail').showModal();try{await loadDetail(selected)}catch(error){$('detail-body').textContent=error.message}});
+$('dismiss').onclick=()=>{$('detail').close();selected=null};$('detail').addEventListener('close',()=>selected=null);
+$('refresh').onclick=refresh;
+$('close-day').onclick=async()=>{const b=$('close-day');b.disabled=true;try{const result=await read('/api/work/close-day',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});$('notice').textContent=(result.duplicate?'Already saved ':'Saved ')+result.day+' at '+closeoutTime(result)+' · '+(result.carried||[]).length+' goals carried forward.';await refresh()}catch(e){$('notice').textContent=e.message}finally{b.disabled=false}};
+refresh();setInterval(()=>{if(!document.hidden)refresh()},5000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
+</script></body></html>"""
+
+
 PHONE_LABELS = {"chat": "FLEET", "cockpit": "COCKPIT", "graph": "GRAPH",
-                "pm": "BOARD", "messages": "MESSAGES", "terminal": "TERMINAL"}
+                "work": "WORK", "messages": "MESSAGES", "terminal": "TERMINAL"}
 
 
 ONBOARD_PHONE_PAGE = """<!doctype html>
@@ -4252,6 +4675,8 @@ class Handler(BaseHTTPRequestHandler):
                 path in ("/board", "/call", "/call-trace", "/cashflow",
                          "/api", "/api/status", "/api/tunnel", "/api/fleet",
                          "/api/brief", "/api/trace-replies")
+                or path == "/work" or path.startswith("/api/work")
+                or path.startswith("/work/artifact/") or path.startswith("/work/doc/")
                 or (path.startswith("/app/") and path != "/app/graph")):
             if not control_authorized(self.headers.get("Authorization")):
                 return self._control_refusal()
@@ -4301,6 +4726,109 @@ class Handler(BaseHTTPRequestHandler):
             # This alternate-port listener exposes metadata only. Legacy GETs
             # include terminal and chat previews, so none are reachable here.
             return self._send(404, "not here\n", "text/plain")
+
+        if path == "/work":
+            page = WORK_PAGE.replace("__VT__", VIEW_TRANSITION_CSS).replace(
+                "__MACHINE__", esc_html(MACHINE))
+            return self._send(200, page, "text/html; charset=utf-8", {
+                "Content-Security-Policy": "default-src 'self'; script-src 'unsafe-inline'; "
+                "style-src 'unsafe-inline'; connect-src 'self'; object-src 'none'; "
+                "base-uri 'none'; frame-ancestors 'self'; form-action 'none'",
+                "X-Content-Type-Options": "nosniff"})
+        # Open and download for a ticket's generated artifacts. The only input
+        # is an ID matched against a fixed pattern; no part of the request
+        # names a file, a path or a digest, and the bytes are re-verified
+        # against the ledger's record before they are written out.
+        # A reading shell for one document, with the chrome the bytes cannot
+        # carry. The artifact itself is still served by the route below under
+        # `default-src 'none'` — no script, no network, nothing executable. The
+        # controls live out here instead, in a page that frames it, so a
+        # proposal gains a fullscreen button without the document gaining the
+        # ability to run anything. Nothing about the artifact's own headers
+        # moves.
+        if path.startswith("/work/doc/"):
+            artifact_id = path[len("/work/doc/"):]
+            if not re.fullmatch(WORK_ARTIFACT_ID, artifact_id):
+                return self._send(404, "no such document\n", "text/plain")
+            try:
+                item = work_command("artifact", artifact_id)
+                if not isinstance(item, dict) or not item.get("ticket"):
+                    raise WorkUnavailable()
+                siblings = work_command("artifacts", "--ticket", item["ticket"])
+                if not isinstance(siblings, list):
+                    raise WorkUnavailable()
+            except (WorkUnavailable, ValueError, TypeError):
+                return self._send(404, "no such document\n", "text/plain")
+            docs = [work_artifact(x) for x in siblings if isinstance(x, dict)]
+            page = (WORK_DOC_PAGE
+                    .replace("__DOCS__", json.dumps(docs))
+                    .replace("__CURRENT__", json.dumps(artifact_id))
+                    # JSON, not esc_html: this lands inside a JS expression, and
+                    # an escaped-but-unquoted REQ-0043 reads as an identifier,
+                    # which kills the whole script and every control with it.
+                    .replace("__TICKET__", json.dumps(item["ticket"])))
+            return self._send(200, page, "text/html; charset=utf-8", {
+                # The shell may run its own inline chrome and frame its own
+                # origin. It still cannot load anything from anywhere else.
+                "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; "
+                "style-src 'unsafe-inline'; img-src data:; frame-src 'self'; connect-src 'self'; "
+                "base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+                "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff"})
+        if path.startswith("/work/artifact/"):
+            artifact_id = path[len("/work/artifact/"):]
+            if not re.fullmatch(WORK_ARTIFACT_ID, artifact_id):
+                return self._send(404, "no such artifact\n", "text/plain")
+            try:
+                item, content = work_artifact_bytes(artifact_id)
+            except (WorkUnavailable, ValueError, TypeError):
+                # Deliberately not distinguishing absent from unverified: both
+                # mean this surface will not serve it, and the ledger holds the
+                # reason.
+                return self._send(404, "no such artifact\n", "text/plain")
+            query = urllib.parse.parse_qs(urlsplit(self.path).query)
+            wants_download = (query.get("download") or ["0"])[0] not in ("0", "")
+            inline = WORK_INLINE_TYPES.get(str(item.get("mime_type") or ""))
+            name = item["original_name"].replace('"', "").replace("\r", "").replace("\n", "")
+            headers = {
+                "X-Content-Type-Options": "nosniff",
+                # The digest travels with the bytes so a recipient can repeat
+                # the check without asking the ledger again.
+                "X-Artifact-Sha256": item["sha256"],
+                "Content-Disposition": ("inline" if inline and not wants_download else "attachment")
+                                       + '; filename="' + name + '"',
+                # An ingested review is a document, not an application: no
+                # script, no network, no framing by anything but this portal.
+                "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; "
+                "img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+                "Referrer-Policy": "no-referrer"}
+            return self._send(200, content,
+                              inline if inline and not wants_download else "application/octet-stream",
+                              headers)
+        if path in ("/api/work", "/api/work/ticket", "/api/work/days", "/api/work/artifacts"):
+            try:
+                if path == "/api/work":
+                    data = work_matrix()
+                elif path == "/api/work/days":
+                    data = work_days()
+                elif path == "/api/work/artifacts":
+                    query = urllib.parse.parse_qs(urlsplit(self.path).query)
+                    ticket = (query.get("id") or [""])[0]
+                    if not re.fullmatch(r"REQ-[0-9]{1,12}", ticket):
+                        return self._send(400, json.dumps({"error": "valid ticket ID required"}), "application/json")
+                    rows = work_command("artifacts", "--ticket", ticket)
+                    if not isinstance(rows, list):
+                        raise WorkUnavailable()
+                    data = {"ticket": ticket, "artifacts": [work_artifact(x) for x in rows]}
+                else:
+                    query = urllib.parse.parse_qs(urlsplit(self.path).query)
+                    ticket = (query.get("id") or [""])[0]
+                    if not re.fullmatch(r"REQ-[0-9]{1,12}", ticket):
+                        return self._send(400, json.dumps({"error": "valid ticket ID required"}), "application/json")
+                    data = work_ticket(work_command("show", ticket), detailed=True)
+            except (WorkUnavailable, ValueError, TypeError):
+                return self._send(503, json.dumps({"error": "Work ledger unavailable"}), "application/json")
+            return self._send(200, json.dumps(data), "application/json", {"X-Content-Type-Options": "nosniff"})
 
         # Fullscreen on iPhone is not the Fullscreen API — Safari on iOS refuses
         # requestFullscreen for anything but <video>. The only real fullscreen
@@ -4706,7 +5234,8 @@ class Handler(BaseHTTPRequestHandler):
                 # A framed app is reached through this origin so the installed
                 # app keeps its fullscreen; everything else still links
                 # straight at the service, which is what it has always done.
-                href = "/app/%s" % app_id if app_id in SHELLED_APPS else s["url"]
+                href = ("/work" if app_id == "work" else
+                        "/app/%s" % app_id if app_id in SHELLED_APPS else s["url"])
                 keys.append('<a class="key" href="%s">%s<span>%s</span></a>'
                             % (esc_html(href), svg, esc_html(label)))
             else:
@@ -4908,6 +5437,42 @@ class Handler(BaseHTTPRequestHandler):
                 # instead of answering.
                 self._discard_body()
                 return self._control_refusal()
+
+        if path == "/api/work/close-day":
+            origin = self.headers.get("Origin")
+            try:
+                same_origin = not origin or urlsplit(origin).netloc == self.headers.get("Host")
+            except ValueError:
+                same_origin = False
+            if ((not same_origin)
+                    or self.headers.get("Sec-Fetch-Site") == "cross-site"):
+                self._discard_body()
+                return self._send(403, json.dumps({"error": "same-origin work request required"}), "application/json")
+            if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
+                self._discard_body()
+                return self._send(415, json.dumps({"error": "JSON required"}), "application/json")
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = -1
+            if self.headers.get("Transfer-Encoding") or not 0 < length <= 4096:
+                self._discard_body()
+                return self._send(400, json.dumps({"error": "valid closeout request required"}), "application/json")
+            try:
+                payload = json.loads(self.rfile.read(length))
+                if payload != {}:
+                    raise ValueError("closeout request must be an empty object")
+            except (ValueError, UnicodeError):
+                return self._send(400, json.dumps({"error": "closeout request must be an empty JSON object"}), "application/json")
+            try:
+                result = work_snapshot(work_command("close-day"))
+            except WorkUnavailable:
+                return self._send(503, json.dumps({"error": "Work closeout unavailable"}), "application/json")
+            return self._send(200, json.dumps(result), "application/json", {"X-Content-Type-Options": "nosniff"})
+
+        if path.startswith("/api/work"):
+            self._discard_body()
+            return self._send(405, json.dumps({"error": "unsupported work operation"}), "application/json")
 
         # Speech is a POST because the text can be long, and a proxy rather than
         # a link because :8890 is not on the tailnet — the phone would have

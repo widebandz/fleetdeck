@@ -27,6 +27,16 @@
     },
 
     {
+      "id": "work",
+      "group": "fleet",
+      "port": 8790,
+      "path": "/work",
+      "icon": "clock",
+      "name": "Work",
+      "blurb": "Goals, decisions, and recorded work time"
+    },
+
+    {
       "_example": "DELETE THIS. The shape of a fully dressed entry for an app you own — it serves its own icon out of its own static directory. Set install:true once its <head> links that icon.",
       "id": "example-owned",
       "group": "apps",

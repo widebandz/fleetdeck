@@ -105,6 +105,43 @@ discovery list.
 
 ---
 
+## Work artifacts
+
+The Work board reads the `wb-work` ledger through a closed command surface:
+`list`, `show`, `days`, `close-day`, `artifacts` and `artifact`, and nothing
+else. There is no write path and no way to redirect the ledger root from a
+request.
+
+A ticket's **generated artifacts** are the one thing this portal serves bytes
+for:
+
+| route | what it does |
+|---|---|
+| `/api/work/artifacts?id=REQ-0011` | the ticket's artifacts, each with `open` and `download` |
+| `/work/artifact/<ART-id>` | opens it, inline where that is safe |
+| `/work/artifact/<ART-id>?download=1` | always a download |
+
+The only input is an ID matched against `ART-[a-f0-9]{24}`. Nothing in a request
+names a file, a path or a digest, and `origin_path` never leaves the ledger — a
+filesystem layout should not become part of an API.
+
+**The bytes are verified twice.** The ledger re-reads its archive and compares
+size and digest before handing anything over, and this portal repeats the digest
+check after transport, so a surface that publishes bytes never trusts a single
+confirmation of what they are. Any mismatch is a `404`: absent and unverified
+are deliberately indistinguishable here, because both mean the same thing to a
+reader and the ledger holds the reason. The digest is returned in
+`X-Artifact-Sha256` so a recipient can repeat the check.
+
+Inline is allowed only for types a browser cannot be talked into executing, and
+even then with `default-src 'none'` and `nosniff` — an ingested review is a
+document, not an application, and HTML rendered on this origin could otherwise
+script the portal. Everything else is `application/octet-stream`.
+
+**Receipt attachments have no such route.** They are rendered as summaries with
+no link, because nothing here serves them, and a link that looks the same for
+both would imply otherwise.
+
 ## The honesty rule
 
 **A tile never shows a link the portal has not resolved from live system state.**
@@ -162,6 +199,55 @@ registry the board uses. A registered service that is down still gets its key,
 dimmed and labelled: hiding it would make a dead service and an unregistered one
 look identical from the one screen most likely to be opened when something is
 wrong.
+
+## Work
+
+The phone's former PM/Board key now opens **Work** at `/work` on the existing
+portal origin and port. The board also has a Work link. Each ticket shows its
+end goal, completion criterion, assigned agent, recorded work, waiting, and
+next decision. A goal with no work interval says **Not started**;
+creating or assigning it does not start a work timer. Tap a ticket for its
+journal, resolution evidence, and separately labelled **Ticket age**, which
+includes time queued, waiting, and paused.
+Business goals such as leads and contracts use the same record as agent tasks.
+
+An agent that stops reporting active work is **Auto-paused** by `wb-work` after
+five minutes. Its work interval ends at the last confirmed activity, and an
+explicit agent resume is required. The board displays that stopped time and
+pause reason; reading or refreshing the page never resumes a timer. Operator
+waiting and dependency waiting remain separate from work and idle pauses.
+
+Work reads the canonical `wb-work` ledger through `~/bin/wb-work`; it does not
+copy goals into a second database. Original message receipts, recipient details,
+media paths, and dispatch payloads are excluded from the portal API. The old PM
+data is retained separately and is not read by Work.
+
+**Close today** saves one immutable daily snapshot with its saved timestamp,
+work time, resolved goals, and carryover IDs. It does not resolve unfinished
+goals, stop workers, or reset clocks. Later visits show when that snapshot was
+saved, so an early closeout is not presented as a current end-of-day total.
+
+| Route | Behavior |
+| --- | --- |
+| `GET /work` | Mobile Work board |
+| `GET /api/work` | Current ticket matrix and recorded time |
+| `GET /api/work/ticket?id=REQ-0042` | One ticket's criteria, timers, and journal |
+| `GET /api/work/days` | Saved closeout summaries |
+| `POST /api/work/close-day` | Empty JSON object saves today's snapshot |
+
+These routes inherit the portal's tailnet boundary and customer-mode operator
+unlock. Closeout also requires JSON and rejects cross-origin requests. The page
+has no dispatch, terminal, or timer-start action. It refreshes from the ledger
+every five seconds while visible; a refresh failure leaves the last recorded
+values marked as stale.
+
+No additional service is needed. The installed launchd job
+`com.wideband.fleetdeck-portal` runs this `portal_server.py`; restart that existing
+job to load Python/page changes. Registry changes in `services.json` are
+hot-reloaded. For another installation, `FLEETDECK_WORK_COMMAND` can name its
+absolute `wb-work` executable. Run the offline checks with
+`python3 -m unittest -v test_work`; they use a mocked ledger and isolated HTTP
+listener, never live work dispatch or messaging.
 
 ---
 
