@@ -18,6 +18,7 @@ first.
 import ipaddress
 import json
 import os
+import signal
 import shutil
 import sys
 import threading
@@ -27,6 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import adopt as engine  # noqa: E402
+from adopt_video import VideoMixin, VideoStore  # noqa: E402
 
 CFG = engine.load(os.path.join(HERE, "config.json"), {})
 PORT = int(os.environ.get("FLEETDECK_ADOPT_PORT",
@@ -206,7 +208,10 @@ function render(p){
 </script></body></html>"""
 
 
-class Handler(BaseHTTPRequestHandler):
+PAGE = PAGE.replace('<main>', '<main><nav style="padding:12px 0"><a href="/video" style="color:#4fe3c1">Video → repo</a> · Git repository</nav>', 1)
+
+
+class Handler(VideoMixin, BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "fleetdeck-adopt"
 
@@ -230,14 +235,23 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
         self.end_headers()
-        self.wfile.write(data)
+        if self.command != "HEAD":
+            self.wfile.write(data)
+
+    def do_HEAD(self):
+        self.do_GET()
 
     def do_GET(self):
         if not self.allowed():
             return self._send(403, "tailnet only\n", "text/plain")
         path = self.path.split("?")[0]
-        if path == "/":
+        if self.video_get(path):
+            return
+        if path == "/repo":
             return self._send(200, PAGE, "text/html; charset=utf-8")
         if path.startswith("/icon-") and path.endswith(".png"):
             f = os.path.join(HERE, "assets", os.path.basename(path))
@@ -248,16 +262,30 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if not self.allowed():
+            self.close_connection = True
             return self._send(403, json.dumps({"ok": False, "error": "tailnet only"}))
-        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            if n < 0 or n > 32768 or self.headers.get("Transfer-Encoding"):
+                raise ValueError()
+        except ValueError:
+            self.close_connection = True
+            return self._send(413, json.dumps({"ok": False, "error": "request body exceeds the limit or has invalid framing"}))
         try:
             body = json.loads(self.rfile.read(n) or b"{}")
-        except Exception:
+            if not isinstance(body, dict):
+                raise ValueError()
+        except (ValueError, UnicodeDecodeError):
             return self._send(400, json.dumps({"ok": False, "error": "bad json"}))
         path = self.path.split("?")[0]
+        if self.video_post(path, body):
+            return
 
         if path == "/api/inspect":
-            plan = engine.inspect((body.get("url") or "").strip())
+            url = body.get("url")
+            if not isinstance(url, str):
+                return self._send(400, json.dumps({"ok": False, "error": "url must be text"}))
+            plan = engine.inspect(url.strip())
             if plan.get("ok"):
                 plan["_at"] = time.monotonic()
                 with LOCK:
@@ -274,6 +302,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, json.dumps(
                     {"ok": False, "steps": [{"ok": False,
                      "msg": "no such plan — inspect again"}]}))
+            if not isinstance(body.get("env", {}), dict):
+                return self._send(400, json.dumps({"ok": False, "error": "env must be an object"}))
             env = {k: str(v) for k, v in (body.get("env") or {}).items()
                    if isinstance(k, str)}
             res = engine.adopt(plan, env_values=env,
@@ -287,8 +317,15 @@ def main():
     threading.Thread(target=reap, daemon=True).start()
     srv = ThreadingHTTPServer((BIND, PORT), Handler)
     srv.daemon_threads = True
+    srv.video = VideoStore()
+    srv.video.start()
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     print(f"fleetdeck-adopt {BIND}:{PORT}", flush=True)
-    srv.serve_forever()
+    try:
+        srv.serve_forever()
+    finally:
+        srv.video.close()
+        srv.server_close()
 
 
 if __name__ == "__main__":
